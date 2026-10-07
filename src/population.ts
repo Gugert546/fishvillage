@@ -12,6 +12,15 @@ import { state, type PlacedBuilding, type Resident } from './state';
 
 export const defOf = (b: PlacedBuilding): BuildingDef => BUILDING_BY_ID[b.type];
 
+/** Empty tiles between two footprints (0 when touching), measured Chebyshev-style. */
+export function tileGap(a: PlacedBuilding, b: PlacedBuilding): number {
+  const da = defOf(a);
+  const db = defOf(b);
+  const gx = Math.max(0, a.col - (b.col + db.w), b.col - (a.col + da.w));
+  const gy = Math.max(0, a.row - (b.row + db.h), b.row - (a.row + da.h));
+  return Math.max(gx, gy);
+}
+
 export function isWorkplace(b: PlacedBuilding): boolean {
   return !!defOf(b).jobs;
 }

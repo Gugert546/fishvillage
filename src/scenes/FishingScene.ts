@@ -19,7 +19,8 @@ import {
 } from '../config';
 import { fishingStats, save, state } from '../state';
 import { tickEconomy } from '../economy';
-import { hookBonus, sonarRange } from '../services';
+import { questEvent, takeQuestToasts } from '../quests';
+import { hookBonus, marketBonus, sonarRange } from '../services';
 import { consumeBait, cycleBait, readyBait, townLevel } from '../town';
 import { makeTextures } from '../textures';
 import {
@@ -33,6 +34,7 @@ import {
   makeText,
   openSettings,
   showOfflineEarnings,
+  showToast,
   type Button,
 } from '../ui';
 
@@ -83,6 +85,8 @@ export class FishingScene extends Phaser.Scene {
   private activeBait?: BaitDef;
   /** Lighthouse sonar range in metres (0 = none). */
   private sonar = 0;
+  /** Fish Market sale bonus for this visit to the dock. */
+  private market = 0;
   private sonarGfx!: Phaser.GameObjects.Graphics;
   private sonarTags: Phaser.GameObjects.Text[] = [];
   private modal?: Modal;
@@ -242,6 +246,7 @@ export class FishingScene extends Phaser.Scene {
     // Town services: Net Makers add hook capacity, Lighthouse keepers run the sonar.
     this.stats.capacity += hookBonus();
     this.sonar = sonarRange();
+    this.market = marketBonus();
     for (const f of [...this.fish, ...this.caught]) f.sprite.destroy();
     this.fish = [];
     this.caught = [];
@@ -289,6 +294,7 @@ export class FishingScene extends Phaser.Scene {
       state.caught[f.type.id] = (state.caught[f.type.id] ?? 0) + 1;
     }
     state.coins += total;
+    questEvent({ type: 'cast', fish: this.caught.map((f) => f.type.id), coins: total });
     save();
     this.refreshHud();
     this.showResults(counts, total);
@@ -300,9 +306,9 @@ export class FishingScene extends Phaser.Scene {
     return FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1);
   }
 
-  /** Sale price including your house's level bonus and this cast's bait. */
+  /** Sale price including your house's level bonus, the Fish Market and this cast's bait. */
   private priceOf(type: FishType): number {
-    return Math.round(type.value * (1 + this.houseBonus() + (this.activeBait?.sellBonus ?? 0)));
+    return Math.round(type.value * (1 + this.houseBonus() + this.market + (this.activeBait?.sellBonus ?? 0)));
   }
 
   private spawnFish(): void {
@@ -375,6 +381,7 @@ export class FishingScene extends Phaser.Scene {
     const dt = Math.min(deltaMs / 1000, 0.05);
     const t = time / 1000;
     tickEconomy();
+    for (const t of takeQuestToasts()) showToast(this, t);
     if (this.phase === 'idle' && !this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined));
     this.updateFish(dt, t);
 
@@ -518,6 +525,7 @@ export class FishingScene extends Phaser.Scene {
     const rows = Math.max(1, counts.size);
     const bonuses: string[] = [];
     if (this.houseBonus() > 0) bonuses.push(`house +${Math.round(this.houseBonus() * 100)}%`);
+    if (this.market > 0) bonuses.push(`market +${Math.round(this.market * 100)}%`);
     if (this.activeBait) bonuses.push(`${this.activeBait.name.toLowerCase()} +${Math.round(this.activeBait.sellBonus * 100)}%`);
     const bonus = bonuses.length > 0;
     const m = (this.modal = new Modal(this, 200 + rows * 34 + (bonus ? 26 : 0)));

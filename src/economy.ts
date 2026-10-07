@@ -3,15 +3,18 @@
 
 import { moveInMultiplier, totalIncome, townHappiness } from './happiness';
 import { tickPopulation } from './population';
+import { checkQuests } from './quests';
 import { offlineCapHours } from './services';
 import { save, state, type Resident } from './state';
 
 /** Gaps longer than this count as "you were away" and get a welcome-back popup. */
 const AWAY_THRESHOLD_S = 60;
 const AUTOSAVE_MS = 5000;
+const QUEST_CHECK_MS = 1000;
 
 let lastTick = state.lastSaved;
 let lastSave = Date.now();
+let lastQuestCheck = 0;
 let pendingOffline = { coins: 0, residents: 0 };
 let arrivals: Resident[] = [];
 
@@ -38,6 +41,11 @@ export function tickEconomy(): void {
     pendingOffline.residents += arrived.length;
   } else {
     arrivals.push(...arrived);
+  }
+
+  if (now - lastQuestCheck > QUEST_CHECK_MS) {
+    checkQuests();
+    lastQuestCheck = now;
   }
 
   if (now - lastSave > AUTOSAVE_MS) {

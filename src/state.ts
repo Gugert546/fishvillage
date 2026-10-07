@@ -29,6 +29,29 @@ export interface Resident {
   pinned?: boolean;
 }
 
+export type QuestKind =
+  | 'catchFish'
+  | 'fillHook'
+  | 'earnFishing'
+  | 'placeDecor'
+  | 'buildRoads'
+  | 'upgrade'
+  | 'residents'
+  | 'happiness';
+
+export interface Quest {
+  id: number;
+  kind: QuestKind;
+  /** Fish id or building id the quest is about, if any. */
+  target?: string;
+  /** How many/much is needed (count, coins, level, residents or happiness %). */
+  amount: number;
+  /** Progress for quests counted from events (catches, placements, earnings). */
+  progress: number;
+  reward: { coins: number; bait?: { id: BaitId; count: number } };
+  done: boolean;
+}
+
 export interface GameState {
   version: number;
   /** Can be fractional while passive income trickles in; display with Math.floor. */
@@ -40,6 +63,8 @@ export interface GameState {
   bait: Partial<Record<BaitId, number>>;
   /** Bait to use on the next cast, or null for none. */
   selectedBait: BaitId | null;
+  quests: Quest[];
+  nextQuestId: number;
   buildings: PlacedBuilding[];
   residents: Resident[];
   /** Seconds accumulated toward the next resident moving in. */
@@ -58,6 +83,8 @@ function freshState(): GameState {
     caught: {},
     bait: {},
     selectedBait: null,
+    quests: [],
+    nextQuestId: 1,
     buildings: [],
     residents: [],
     moveInTimer: 0,

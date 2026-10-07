@@ -1,33 +1,27 @@
 // Happiness: how residents feel about where they live, and what that does for the town.
 
 import { HAPPINESS } from './config';
-import { defOf } from './population';
-import { tavernMood } from './services';
+import { defOf, tileGap, workerCounts } from './population';
+import { millBoost, tavernMood } from './services';
+import { isWorking, touchesWater, wateredTiles } from './water';
 import { state, type PlacedBuilding, type Resident } from './state';
 
 export interface HomeMood {
   base: number;
   decor: number;
   road: number;
+  water: number;
   tavern: number;
-  /** base + decor + road + tavern, before the per-resident job modifier. */
+  /** base + decor + road + water + tavern, before the per-resident job modifier. */
   total: number;
 }
 
 const clamp = (v: number) => Math.max(0, Math.min(100, v));
 
-/** Empty tiles between two footprints (0 when touching), measured Chebyshev-style. */
-export function tileGap(a: PlacedBuilding, b: PlacedBuilding): number {
-  const da = defOf(a);
-  const db = defOf(b);
-  const gx = Math.max(0, a.col - (b.col + db.w), b.col - (a.col + da.w));
-  const gy = Math.max(0, a.row - (b.row + db.h), b.row - (a.row + da.h));
-  return Math.max(gx, gy);
-}
-
 function roadTiles(): Set<string> {
   const tiles = new Set<string>();
-  for (const b of state.buildings) if (b.type === 'road') tiles.add(`${b.col},${b.row}`);
+  // Bridges carry the road over canals, so they count as road too.
+  for (const b of state.buildings) if (b.type === 'road' || b.type === 'bridge') tiles.add(`${b.col},${b.row}`);
   return tiles;
 }
 
@@ -43,22 +37,25 @@ export function touchesRoad(b: PlacedBuilding, roads = roadTiles()): boolean {
   return false;
 }
 
-/** Happiness a decoration gives a home, or 0 if out of range. */
-export function decorBonus(decor: PlacedBuilding, home: PlacedBuilding): number {
+/** Happiness a decoration gives a home, or 0 if out of range (or a boat with no water). */
+export function decorBonus(decor: PlacedBuilding, home: PlacedBuilding, wet?: Set<string>): number {
   const effect = defOf(decor).happiness;
-  if (!effect) return 0;
-  return tileGap(decor, home) <= effect.radius ? effect.amount : 0;
+  if (!effect || tileGap(decor, home) > effect.radius) return 0;
+  if (!defOf(decor).needsWater) return effect.amount;
+  return touchesWater(decor, wet ?? wateredTiles()) ? effect.amount : 0;
 }
 
-export function homeMood(home: PlacedBuilding, roads = roadTiles()): HomeMood {
+export function homeMood(home: PlacedBuilding, roads = roadTiles(), wet = wateredTiles()): HomeMood {
   let decor = 0;
   let tavern = 0;
+  const counts = workerCounts();
   for (const b of state.buildings) {
-    decor += decorBonus(b, home);
-    if (defOf(b).moodPerWorker) tavern += tavernMood(b, tileGap(b, home));
+    decor += decorBonus(b, home, wet);
+    if (defOf(b).moodPerWorker) tavern += tavernMood(b, tileGap(b, home), counts, wet);
   }
   const road = touchesRoad(home, roads) ? HAPPINESS.roadNextToHome : 0;
-  return { base: HAPPINESS.base, decor, road, tavern, total: HAPPINESS.base + decor + road + tavern };
+  const water = touchesWater(home, wet) ? HAPPINESS.waterNextToHome : 0;
+  return { base: HAPPINESS.base, decor, road, water, tavern, total: HAPPINESS.base + decor + road + water + tavern };
 }
 
 export function residentHappiness(r: Resident, mood: HomeMood): number {
@@ -68,13 +65,16 @@ export function residentHappiness(r: Resident, mood: HomeMood): number {
 /** Happiness of every resident, computed in one pass. */
 export function happinessByResident(): Map<number, number> {
   const roads = roadTiles();
+  const wet = wateredTiles();
   const moods = new Map<number, HomeMood>();
   const out = new Map<number, number>();
   for (const r of state.residents) {
     let mood = moods.get(r.home);
     if (!mood) {
       const home = state.buildings.find((b) => b.id === r.home);
-      mood = home ? homeMood(home, roads) : { base: HAPPINESS.base, decor: 0, road: 0, tavern: 0, total: HAPPINESS.base };
+      mood = home
+        ? homeMood(home, roads, wet)
+        : { base: HAPPINESS.base, decor: 0, road: 0, water: 0, tavern: 0, total: HAPPINESS.base };
       moods.set(r.home, mood);
     }
     out.set(r.id, residentHappiness(r, mood));
@@ -104,13 +104,13 @@ function scale(happiness: number, atZero: number, atFull: number): number {
 export const incomeMultiplier = (h: number) => scale(h, HAPPINESS.incomeAtZero, HAPPINESS.incomeAtFull);
 export const moveInMultiplier = (h: number) => scale(h, HAPPINESS.moveInAtZero, HAPPINESS.moveInAtFull);
 
-/** Extra Fish Stand income from Fillet House workers, e.g. 0.3 = +30%. */
-export function filletBoost(): number {
+/** Extra Fish Stand income from Fillet House workers (each powered up by nearby mills), e.g. 0.3 = +30%. */
+export function filletBoost(counts = workerCounts(), wet = wateredTiles()): number {
   let boost = 0;
   for (const b of state.buildings) {
     const perWorker = defOf(b).standBoostPerWorker?.(b.level);
     if (!perWorker) continue;
-    boost += perWorker * state.residents.filter((r) => r.job === b.id).length;
+    boost += perWorker * (counts.get(b.id) ?? 0) * (1 + millBoost(b, counts, wet));
   }
   return boost;
 }
@@ -121,14 +121,16 @@ export function workplaceIncome(
   byResident = happinessByResident(),
   roads = roadTiles(),
   fillets = filletBoost(),
+  wet = wateredTiles(),
 ): number {
   const perWorker = defOf(b).incomePerWorker?.(b.level) ?? 0;
-  if (perWorker === 0) return 0;
+  if (perWorker === 0 || !isWorking(b, wet)) return 0;
   let total = 0;
   for (const r of state.residents) {
     if (r.job === b.id) total += perWorker * incomeMultiplier(byResident.get(r.id) ?? 50);
   }
   if (b.type === 'fishStand') total *= 1 + fillets;
+  total *= 1 + millBoost(b, undefined, wet);
   return total * (touchesRoad(b, roads) ? 1 + HAPPINESS.roadIncomeBonus : 1);
 }
 
@@ -136,6 +138,7 @@ export function workplaceIncome(
 export function totalIncome(): number {
   const byResident = happinessByResident();
   const roads = roadTiles();
-  const fillets = filletBoost();
-  return state.buildings.reduce((sum, b) => sum + workplaceIncome(b, byResident, roads, fillets), 0);
+  const wet = wateredTiles();
+  const fillets = filletBoost(undefined, wet);
+  return state.buildings.reduce((sum, b) => sum + workplaceIncome(b, byResident, roads, fillets, wet), 0);
 }

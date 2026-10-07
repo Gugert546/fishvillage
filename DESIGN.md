@@ -63,7 +63,7 @@ Every game starts with your own house above the dock (movable, not sellable). It
 | Level | Cost | Needs | Unlocks |
 |---|---|---|---|
 | 1 | start | – | Cottage, Fish Stand, Tackle Shop, Road, Flower Bed, Tree |
-| 2 | $300 | 2 residents | Bait Shop, Bench |
+| 2 | $300 | 2 residents | Quests, Bait Shop, Bench |
 | 3 | $1,500 | 6 residents | Apartment, Lamp Post, Fillet House, Warehouse |
 | 4 | $6,000 | 12 residents | Fountain, Tavern |
 | 5 | $20,000 | 24 residents | Net Maker |
@@ -82,6 +82,26 @@ Fish Stands: 2 at level 1, then **+1 per level**. No building can be upgraded pa
 | Net Maker | 5 | +1 hook capacity |
 | Lighthouse | 6 | +10 m sonar range (+15 / +20 m at Lv2/3): price tags on fish in range, red rings on fish in your path while descending |
 
+## Waterside buildings
+
+Must be placed beside a filled canal; if the water goes away they stop working (blue "!").
+
+| Building | Lv | Jobs | Effect |
+|---|---|---|---|
+| Moored Boats (decor) | 2 | – | +6 mood within 2 tiles; rowboat floats on the canal |
+| Fisherman's Hut | 3 | 2 | $9/min per worker |
+| Fish Market | 4 | 4 | +5% dock sale price per worker (+6% / +7% at Lv2/3) |
+| Water Mill | 4 | 2 | +10% income per worker for earning workplaces within 6 tiles (also boosts Fillet Houses) |
+| Boatyard | 5 | 4 | Just the building for now — will unlock the Open Sea |
+| Bathhouse | 5 | 4 | +5 mood per worker for homes within 6 tiles (+6 / +7 at Lv2/3) |
+| Seafood Restaurant | 6 | 4 | $20/min per worker, +2 mood per worker nearby |
+
+## Quests
+
+Unlocked at town level 2; the Quests button sits between Build and Go Fish (badge = quests ready to claim). Three quests at a time, always ones that are possible right now (fish within the line's reach, unlocked buildings, upgrades within the town level). Claim for coins (sometimes + 3 of the best bait you can buy); Swap a quest for $25 × town level. A toast pops up when one is finished, in town or while fishing.
+
+Kinds: catch N of a fish · fill the hook in one cast · earn $N from fishing · place N decorations · build N road tiles · upgrade a building to Lv N · reach N residents · reach N% happiness. Numbers live in `src/quests.ts` and `QUESTS` in config.
+
 ## Town life (residents, jobs, happiness)
 
 **Houses → residents → jobs → income.** Decorations and roads → happiness → bonuses.
@@ -92,6 +112,7 @@ Fish Stands: 2 at level 1, then **+1 per level**. No building can be upgraded pa
 - **Residents list:** tap the population counter in the top bar. Shows name, job, home and mood; tap a resident to pick their job (Auto / No job / a workplace). Hand-picked jobs are pinned: auto-assignment works around them and may bump auto workers to make room.
 - **Happiness (0–100%):** per house, averaged over residents. Sources: decorations with an area of effect (Flower bed, Tree, Bench, Fountain…), adjacent road, employment. Range preview while placing.
 - **Roads:** bonus only, never required. Villagers walk along them.
+- **Canals:** painted like roads ($10/tile, full refund). Water only flows in through canals connected to the shore (bottom row, where they pass under a little bridge in the boardwalk); unconnected stretches stay dry ditches. Homes beside water get +5 happiness. **Bridges** ($25) go over canals so villagers can cross.
 - **Effects:** income multiplier (~×0.75 at 0% → ×1.5 at 100%), move-in speed, perks at high happiness. Low happiness never makes residents leave.
 - **Alive:** villagers walking home ↔ work, chimney smoke, shopkeeper in the door, "Help wanted!" signs.
 - Existing saves get a few starter residents so they keep earning.

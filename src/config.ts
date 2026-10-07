@@ -232,6 +232,8 @@ export const FIRST_MOVE_IN_SECONDS = 3;
 export const HAPPINESS = {
   base: 40,
   roadNextToHome: 10,
+  /** Waterfront homes: next to a canal that's filled with water. */
+  waterNextToHome: 5,
   employed: 10,
   unemployed: -10,
   /** Income multiplier for a worker at 0% and 100% happiness (1.0 at 50%). */
@@ -266,12 +268,22 @@ export type BuildingId =
   | 'cottage'
   | 'apartment'
   | 'road'
+  | 'canal'
+  | 'bridge'
+  | 'mooredBoats'
+  | 'fishermansHut'
+  | 'fishMarket'
+  | 'waterMill'
+  | 'boatyard'
+  | 'bathhouse'
+  | 'seafoodRestaurant'
   | 'flowerBed'
   | 'tree'
   | 'bench'
   | 'lampPost'
   | 'fountain';
-export type BuildingCategory = 'player' | 'work' | 'housing' | 'decor' | 'road';
+/** `tile`: painted one-tile pieces (roads, canals) drawn as one connected layer. */
+export type BuildingCategory = 'player' | 'work' | 'housing' | 'decor' | 'tile';
 
 export interface BuildingDef {
   id: BuildingId;
@@ -316,6 +328,12 @@ export interface BuildingDef {
   sonarPerWorker?: (level: number) => number;
   /** Build menu tab for workplaces that aren't shops. */
   menuTab?: 'services';
+  /** Must be placed right beside a filled canal, and stops working if the water goes away. */
+  needsWater?: boolean;
+  /** Fish Market: extra sale price at the dock per worker (0.05 = +5%). */
+  dockPricePerWorker?: (level: number) => number;
+  /** Water Mill: each worker makes earning workplaces within `radius` tiles earn this much more. */
+  millPerWorker?: { amount: number; radius: number };
 }
 
 /** One extra job slot every second level: 1, 1, 2, 2, 3… */
@@ -457,7 +475,9 @@ const decor = (
 });
 
 // Services: they need staff but earn nothing directly; each worker helps the town another way.
-const service = (def: Omit<BuildingDef, 'category' | 'costGrowth' | 'jobs' | 'menuTab'> & { costGrowth?: number }): BuildingDef => ({
+const service = (
+  def: Omit<BuildingDef, 'category' | 'costGrowth' | 'jobs' | 'menuTab'> & Partial<Pick<BuildingDef, 'costGrowth' | 'jobs'>>,
+): BuildingDef => ({
   category: 'work',
   costGrowth: 1,
   jobs: () => 4,
@@ -529,12 +549,120 @@ BUILDINGS.push(
   }),
 );
 
+// Waterside: must sit beside a filled canal.
+BUILDINGS.push(
+  {
+    id: 'fishermansHut',
+    name: "Fisherman's Hut",
+    description: 'Its workers fish right from the canal.',
+    category: 'work',
+    w: 2,
+    h: 2,
+    wall: 0x9c6644,
+    roof: 0x588157,
+    baseCost: 300,
+    costGrowth: 1.4,
+    maxCount: 6,
+    maxLevel: 5,
+    unlockLevel: 3,
+    needsWater: true,
+    upgradeCost: (l) => Math.round(250 * Math.pow(1.8, l - 1)),
+    jobs: () => 2,
+    incomePerWorker: (l) => 9 * Math.pow(1.15, l - 1),
+  },
+  {
+    id: 'seafoodRestaurant',
+    name: 'Seafood Restaurant',
+    description: 'Waterfront dining. Earns well and cheers up homes nearby.',
+    category: 'work',
+    w: 4,
+    h: 2,
+    wall: 0xfefae0,
+    roof: 0x1d3557,
+    baseCost: 30_000,
+    costGrowth: 1.5,
+    maxCount: 2,
+    maxLevel: 3,
+    unlockLevel: 6,
+    needsWater: true,
+    upgradeCost: (l) => Math.round(25_000 * Math.pow(2, l - 1)),
+    jobs: () => 4,
+    incomePerWorker: (l) => 20 * Math.pow(1.15, l - 1),
+    moodPerWorker: { amount: () => 2, radius: 4 },
+  },
+  service({
+    id: 'fishMarket',
+    name: 'Fish Market',
+    description: 'Boats unload here; your catch sells for more.',
+    w: 4,
+    h: 4,
+    wall: 0xe9edc9,
+    roof: 0xc1121f,
+    baseCost: 5_000,
+    maxCount: 1,
+    maxLevel: 3,
+    unlockLevel: 4,
+    needsWater: true,
+    upgradeCost: (l) => Math.round(6_000 * Math.pow(2, l - 1)),
+    dockPricePerWorker: (l) => 0.04 + 0.01 * l,
+  }),
+  service({
+    id: 'waterMill',
+    name: 'Water Mill',
+    description: 'Powers workplaces nearby so they earn more.',
+    w: 2,
+    h: 2,
+    wall: 0xd5bdaf,
+    roof: 0x6b705c,
+    baseCost: 2_500,
+    maxCount: 4,
+    maxLevel: 1,
+    unlockLevel: 4,
+    needsWater: true,
+    upgradeCost: () => 0,
+    jobs: () => 2,
+    millPerWorker: { amount: 0.1, radius: 6 },
+  }),
+  service({
+    id: 'boatyard',
+    name: 'Boatyard',
+    description: 'Builds boats for the open sea. (Coming soon!)',
+    w: 4,
+    h: 4,
+    wall: 0xb08968,
+    roof: 0x495057,
+    baseCost: 15_000,
+    maxCount: 1,
+    maxLevel: 1,
+    unlockLevel: 5,
+    needsWater: true,
+    upgradeCost: () => 0,
+  }),
+  service({
+    id: 'bathhouse',
+    name: 'Bathhouse',
+    description: 'Steam, hot baths and a cold dip. Cheers up homes nearby.',
+    w: 2,
+    h: 4,
+    wall: 0xccd5ae,
+    roof: 0x7f4f24,
+    baseCost: 12_000,
+    costGrowth: 1.5,
+    maxCount: 2,
+    maxLevel: 3,
+    unlockLevel: 5,
+    needsWater: true,
+    upgradeCost: (l) => Math.round(10_000 * Math.pow(2, l - 1)),
+    moodPerWorker: { amount: (l) => 4 + l, radius: 6 },
+  }),
+);
+
 BUILDINGS.push(
   {
     id: 'road',
     name: 'Road',
-    description: 'Homes next to a road are happier; workplaces earn 10% more.',
-    category: 'road',
+    description: 'Happier homes, busier shops.',
+    category: 'tile',
     w: 1,
     h: 1,
     wall: 0,
@@ -546,12 +674,58 @@ BUILDINGS.push(
     upgradeCost: () => 0,
     refund: 1,
   },
+  {
+    id: 'canal',
+    name: 'Canal',
+    description: 'Brings the sea into town.',
+    category: 'tile',
+    w: 1,
+    h: 1,
+    wall: 0,
+    roof: 0,
+    baseCost: 10,
+    costGrowth: 1,
+    maxCount: 2000,
+    maxLevel: 1,
+    upgradeCost: () => 0,
+    refund: 1,
+  },
+  {
+    id: 'bridge',
+    name: 'Bridge',
+    description: 'Lets villagers cross a canal.',
+    category: 'tile',
+    w: 1,
+    h: 1,
+    wall: 0,
+    roof: 0,
+    baseCost: 25,
+    costGrowth: 1,
+    maxCount: 500,
+    maxLevel: 1,
+    upgradeCost: () => 0,
+    refund: 1,
+  },
+  { ...decor('mooredBoats', 'Moored Boats', 'A rowboat tied up by the bank.', 60, 6, 2, 1, 2), needsWater: true },
   decor('flowerBed', 'Flower Bed', 'A splash of colour.', 15, 6, 2),
   decor('tree', 'Tree', 'Shade and birdsong.', 25, 5, 3),
   decor('bench', 'Bench', 'A spot to sit and chat.', 30, 8, 2, 1, 2),
   decor('lampPost', 'Lamp Post', 'Cosy light for evening walks.', 40, 6, 3, 1, 3),
   decor('fountain', 'Fountain', 'The pride of the town square.', 250, 15, 4, 2, 4),
 );
+
+// ------------------------------------------------------------------- Quests
+
+export const QUESTS = {
+  /** Town level that unlocks the quest board. */
+  unlockLevel: 2,
+  /** Quests on the board at once. */
+  active: 3,
+  /** Swapping a quest costs this × town level. */
+  swapCostPerLevel: 25,
+  /** Chance a reward also includes a pack of the best bait you can buy. */
+  baitRewardChance: 0.3,
+};
 
 // ------------------------------------------------------------- Player house
 // Your own home by the dock. Its level is the town level: it gates which buildings unlock,

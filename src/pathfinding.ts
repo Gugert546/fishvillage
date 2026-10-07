@@ -34,9 +34,17 @@ export class WalkGrid {
           const i = this.index(c, r);
           if (i < 0) continue;
           if (b.type === 'road') this.road[i] = 1;
-          else this.blocked[i] = 1;
+          else if (b.type !== 'bridge') this.blocked[i] = 1;
         }
       }
+    }
+    // Bridges make the canal under them walkable, and walk like road.
+    for (const b of state.buildings) {
+      if (b.type !== 'bridge') continue;
+      const i = this.index(b.col, b.row);
+      if (i < 0) continue;
+      this.blocked[i] = 0;
+      this.road[i] = 1;
     }
   }
 

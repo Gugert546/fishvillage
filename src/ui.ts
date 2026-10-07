@@ -376,3 +376,20 @@ export function makeListRow(
   if (onClick) onTap(bg, onClick);
   return scene.add.container(0, 0, [bg]);
 }
+
+/** Toasts on screen per scene, so new ones stack below; destroyed ones drop out by themselves. */
+const liveToasts = new WeakMap<Phaser.Scene, Phaser.GameObjects.Container[]>();
+
+/** A short message that slides in under the top bar and fades away. */
+export function showToast(scene: Phaser.Scene, text: string): void {
+  const live = (liveToasts.get(scene) ?? []).filter((t) => t.active);
+  const y = 74 + live.length * 46;
+  const label = makeText(scene, 0, 0, text, 16).setOrigin(0.5);
+  const bg = scene.add
+    .rectangle(0, 0, Math.min(GAME_WIDTH - 30, label.width + 36), 38, 0x2d6a4f)
+    .setStrokeStyle(2, 0x8ee88e);
+  const toast = fixToScreen(scene.add.container(GAME_WIDTH / 2, y - 30, [bg, label]).setDepth(UI_DEPTH + 20).setAlpha(0));
+  liveToasts.set(scene, [...live, toast]);
+  scene.tweens.add({ targets: toast, y, alpha: 1, duration: 250, ease: 'Back.Out' });
+  scene.tweens.add({ targets: toast, alpha: 0, delay: 2800, duration: 400, onComplete: () => toast.destroy() });
+}

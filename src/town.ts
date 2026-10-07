@@ -19,6 +19,8 @@ import {
   type UpgradeDef,
 } from './config';
 import { assignJobs, evictFrom, housingOf, jobSlots, shopOpen, tickPopulation, totalJobs } from './population';
+import { questEvent } from './quests';
+import { touchesWater } from './water';
 import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
 
 export function townRows(): number {
@@ -61,13 +63,33 @@ export function buildCost(def: BuildingDef): number {
   return Math.round(def.baseCost * Math.pow(def.costGrowth, countOwned(def.id)));
 }
 
-export function canPlace(def: BuildingDef, col: number, row: number, ignore?: PlacedBuilding): boolean {
-  if (col < 0 || row < 0 || col + def.w > TOWN_COLS || row + def.h > townRows()) return false;
-  return !state.buildings.some((b) => {
+export type PlacementProblem = 'outside' | 'taken' | 'water' | 'noCanal';
+
+/** Why a building can't go here, or undefined if it can. */
+export function placementProblem(
+  def: BuildingDef,
+  col: number,
+  row: number,
+  ignore?: PlacedBuilding,
+): PlacementProblem | undefined {
+  if (col < 0 || row < 0 || col + def.w > TOWN_COLS || row + def.h > townRows()) return 'outside';
+  const overlapping = state.buildings.filter((b) => {
     if (b === ignore) return false;
     const other = BUILDING_BY_ID[b.type];
     return col < b.col + other.w && b.col < col + def.w && row < b.row + other.h && b.row < row + def.h;
   });
+  // Bridges are the one thing that goes on top of something else: a canal.
+  if (def.id === 'bridge') {
+    if (!overlapping.some((b) => b.type === 'canal')) return 'noCanal';
+    return overlapping.every((b) => b.type === 'canal') ? undefined : 'taken';
+  }
+  if (overlapping.length > 0) return 'taken';
+  if (def.needsWater && !touchesWater({ id: -1, type: def.id, col, row, level: 1 })) return 'water';
+  return undefined;
+}
+
+export function canPlace(def: BuildingDef, col: number, row: number, ignore?: PlacedBuilding): boolean {
+  return placementProblem(def, col, row, ignore) === undefined;
 }
 
 export function placeBuilding(def: BuildingDef, col: number, row: number): PlacedBuilding | undefined {
@@ -79,6 +101,7 @@ export function placeBuilding(def: BuildingDef, col: number, row: number): Place
   const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost };
   state.buildings.push(building);
   assignJobs();
+  questEvent({ type: 'placed', building: def.id });
   save();
   return building;
 }
@@ -115,9 +138,17 @@ export function canSell(b: PlacedBuilding): boolean {
 
 export function sellBuilding(b: PlacedBuilding): number {
   if (!canSell(b)) return 0;
-  const value = sellValue(b);
+  let value = sellValue(b);
   evictFrom(b);
   state.buildings = state.buildings.filter((other) => other !== b);
+  // Filling in a canal takes any bridge over it along.
+  if (b.type === 'canal') {
+    const bridge = state.buildings.find((x) => x.type === 'bridge' && x.col === b.col && x.row === b.row);
+    if (bridge) {
+      value += sellValue(bridge);
+      state.buildings = state.buildings.filter((other) => other !== bridge);
+    }
+  }
   assignJobs();
   state.coins += value;
   save();
