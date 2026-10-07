@@ -1,0 +1,20 @@
+{
+  "name": "fishvillage",
+  "version": "1.0.0",
+  "description": "Fish from the dock, sell your catch, and build a village.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc"
+  },
+  "type": "module",
+  "dependencies": {
+    "phaser": "^4.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3"
+  },
+  "private": true
+}
