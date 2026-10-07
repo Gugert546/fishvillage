@@ -36,6 +36,7 @@ import {
 } from '../population';
 import { state, type PlacedBuilding } from '../state';
 import { makeTextures } from '../textures';
+import { Villagers, makePerson } from './Villagers';
 import {
   buildCost,
   buyUpgrade,
@@ -78,6 +79,7 @@ const BOTTOM_BAR_H = 90;
 const DRAG_THRESHOLD = 8;
 const INCOME_POP_MS = 4000;
 const STATUS_CHECK_MS = 500;
+const SMOKE_MS = 700;
 /** Distance from the screen edge (px) where painting roads scrolls the town. */
 const AUTOSCROLL_EDGE = 110;
 const AUTOSCROLL_SPEED = 420;
@@ -124,6 +126,8 @@ interface Ghost {
 interface ViewStatus {
   level: number;
   unstaffed: boolean;
+  /** Resident shown in the doorway of a staffed workplace. */
+  keeper?: number;
 }
 
 /** World-space top-left of a footprint whose bottom-left tile is (col, row). */
@@ -166,6 +170,7 @@ export class TownScene extends Phaser.Scene {
   private rangeGfx!: Phaser.GameObjects.Graphics;
   private rangeLabels: Phaser.GameObjects.Text[] = [];
   private buildTab: BuildTab = 'homes';
+  private villagers!: Villagers;
 
   constructor() {
     super('Town');
@@ -204,11 +209,14 @@ export class TownScene extends Phaser.Scene {
     takeArrivals(); // Don't replay arrivals that happened while fishing.
     this.time.addEvent({ delay: INCOME_POP_MS, loop: true, callback: () => this.showIncomePops() });
     this.time.addEvent({ delay: STATUS_CHECK_MS, loop: true, callback: () => this.refreshBuildingViews() });
+    this.time.addEvent({ delay: SMOKE_MS, loop: true, callback: () => this.puffSmoke() });
+    this.villagers = new Villagers(this);
   }
 
-  update(_time: number, deltaMs: number): void {
+  update(time: number, deltaMs: number): void {
     const dt = Math.min(deltaMs / 1000, 0.05);
     tickEconomy();
+    this.villagers.update(Math.min(deltaMs, 100), time);
     this.topBar.update();
     this.showArrivals();
     if (!this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined));
@@ -318,7 +326,7 @@ export class TownScene extends Phaser.Scene {
   // ---------------------------------------------------------- Buildings
 
   private drawBuilding(def: BuildingDef, status?: ViewStatus): Phaser.GameObjects.Container {
-    if (def.category === 'decor' || def.category === 'road') return this.add.container(0, 0, [this.drawDecor(def)]);
+    if (def.category === 'decor' || def.category === 'road') return this.decorView(def);
     const pw = def.w * TILE;
     const ph = def.h * TILE;
     const eave = ph * 0.42;
@@ -326,9 +334,10 @@ export class TownScene extends Phaser.Scene {
     g.fillStyle(0x000000, 0.18);
     g.fillRect(8, 10, pw - 10, ph - 12);
 
-    if (def.id === 'cottage') {
+    const chimney = this.chimneyOf(def);
+    if (chimney) {
       g.fillStyle(0x6b4f3a);
-      g.fillRect(pw * 0.68, 8, 7, 16); // chimney
+      g.fillRect(chimney.x - 3.5, chimney.y, 7, 16);
     }
     g.fillStyle(def.wall);
     g.fillRect(6, eave - 4, pw - 12, ph - eave - 2);
@@ -370,6 +379,12 @@ export class TownScene extends Phaser.Scene {
         parts.push(this.add.circle(pw - 10, 10, 10, 0x1d3557).setStrokeStyle(2, 0xffffff));
         parts.push(makeText(this, pw - 10, 10, `${status.level}`, 12).setOrigin(0.5));
       }
+      if (status.keeper !== undefined) {
+        // Shopkeeper waiting in the doorway, shifting their weight now and then.
+        const keeper = makePerson(this, status.keeper).setPosition(pw / 2 + 13, ph - 5);
+        this.tweens.add({ targets: keeper, scaleY: 1.06, duration: 900 + Math.random() * 400, yoyo: true, repeat: -1 });
+        parts.push(keeper);
+      }
       if (status.unstaffed) {
         // "Help wanted": a workplace with nobody working there
         const pip = this.add.circle(10, 10, 9, 0xe63946).setStrokeStyle(2, 0xffffff);
@@ -379,6 +394,24 @@ export class TownScene extends Phaser.Scene {
       }
     }
     return this.add.container(0, 0, parts);
+  }
+
+  /** Decor with its little bit of life: glowing lamps, a bubbling fountain. */
+  private decorView(def: BuildingDef): Phaser.GameObjects.Container {
+    const view = this.add.container(0, 0, [this.drawDecor(def)]);
+    if (def.id === 'lampPost') {
+      const glow = this.add.circle(TILE / 2, 8, 13, 0xffe066, 0.18);
+      view.addAt(glow, 0);
+      this.tweens.add({ targets: glow, alpha: 0.45, scale: 1.25, duration: 1400 + Math.random() * 600, yoyo: true, repeat: -1 });
+    }
+    if (def.id === 'fountain') {
+      const spout = this.add.circle(TILE, TILE - 3, 3, 0xffffff, 0.9);
+      const ripple = this.add.circle(TILE, TILE, 9).setStrokeStyle(2, 0xffffff, 0.6);
+      view.add([ripple, spout]);
+      this.tweens.add({ targets: spout, y: TILE - 9, duration: 450, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+      this.tweens.add({ targets: ripple, scale: 2.1, alpha: 0, duration: 1600, repeat: -1 });
+    }
+    return view;
   }
 
   /** Small props: decorations, and a road tile for the build menu preview. */
@@ -463,10 +496,11 @@ export class TownScene extends Phaser.Scene {
     for (const b of state.buildings) {
       if (b.type === 'road') continue;
       alive.add(b.id);
-      const status: ViewStatus = { level: b.level, unstaffed: jobSlots(b) > 0 && !counts.get(b.id) };
+      const keeper = jobSlots(b) > 0 ? state.residents.find((r) => r.job === b.id)?.id : undefined;
+      const status: ViewStatus = { level: b.level, unstaffed: jobSlots(b) > 0 && !counts.get(b.id), keeper };
       const old = this.viewStatus.get(b.id);
       const view = this.buildingViews.get(b.id);
-      if (!view || !old || old.level !== status.level || old.unstaffed !== status.unstaffed) {
+      if (!view || !old || old.level !== status.level || old.unstaffed !== status.unstaffed || old.keeper !== keeper) {
         this.addBuildingView(b, status);
       } else {
         // Keep the position current (cheap, and covers moves).
@@ -503,6 +537,34 @@ export class TownScene extends Phaser.Scene {
       if (!tiles.has(`${r.col},${r.row - 1}`)) g.fillRect(p.x, p.y + TILE - 2, TILE, 2);
       if (!tiles.has(`${r.col - 1},${r.row}`)) g.fillRect(p.x, p.y, 2, TILE);
       if (!tiles.has(`${r.col + 1},${r.row}`)) g.fillRect(p.x + TILE - 2, p.y, 2, TILE);
+    }
+  }
+
+  /** Chimney top in building-local px, for homes. */
+  private chimneyOf(def: BuildingDef): { x: number; y: number } | undefined {
+    if (def.id === 'cottage') return { x: def.w * TILE * 0.68 + 3.5, y: 8 };
+    if (def.id === 'apartment') return { x: def.w * TILE * 0.74, y: 18 };
+    return undefined;
+  }
+
+  /** Smoke rises from the chimneys of homes where somebody lives. */
+  private puffSmoke(): void {
+    const occupied = new Set(state.residents.map((r) => r.home));
+    for (const b of state.buildings) {
+      const chimney = this.chimneyOf(defOf(b));
+      if (!chimney || !occupied.has(b.id) || !this.isOnScreen(b) || Math.random() < 0.4) continue;
+      if (this.ghost?.moving === b) continue;
+      const pos = tileToWorld(b.col, b.row, defOf(b).h);
+      const puff = this.add.circle(pos.x + chimney.x, pos.y + chimney.y - 2, 3.5, 0xeeeeee, 0.65).setDepth(30);
+      this.tweens.add({
+        targets: puff,
+        y: puff.y - 30,
+        x: puff.x + Phaser.Math.Between(-6, 6),
+        scale: 2.4,
+        alpha: 0,
+        duration: 2200,
+        onComplete: () => puff.destroy(),
+      });
     }
   }
 
