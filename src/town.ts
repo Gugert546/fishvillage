@@ -13,7 +13,8 @@ import {
   type BuildingId,
   type UpgradeDef,
 } from './config';
-import { save, state, type PlacedBuilding } from './state';
+import { assignJobs, evictFrom, housingOf, jobSlots, shopOpen, tickPopulation, totalJobs } from './population';
+import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
 
 export function townRows(): number {
   return Math.min(MAX_ROWS, START_ROWS + state.expansions * ROWS_PER_EXPANSION);
@@ -59,6 +60,7 @@ export function placeBuilding(def: BuildingDef, col: number, row: number): Place
   state.coins -= cost;
   const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost };
   state.buildings.push(building);
+  assignJobs();
   save();
   return building;
 }
@@ -70,6 +72,7 @@ export function upgradeBuilding(b: PlacedBuilding): boolean {
   state.coins -= cost;
   b.spent = totalSpent(b) + cost;
   b.level++;
+  assignJobs();
   save();
   return true;
 }
@@ -89,7 +92,9 @@ export function sellValue(b: PlacedBuilding): number {
 
 export function sellBuilding(b: PlacedBuilding): number {
   const value = sellValue(b);
+  evictFrom(b);
   state.buildings = state.buildings.filter((other) => other !== b);
+  assignJobs();
   state.coins += value;
   save();
   return value;
@@ -116,9 +121,58 @@ export function upgradeLevelCap(def: UpgradeDef): number {
 export function buyUpgrade(def: UpgradeDef): boolean {
   const level = state.upgrades[def.id];
   const cost = upgradeCost(def, level);
-  if (level >= upgradeLevelCap(def) || state.coins < cost) return false;
+  if (!shopOpen(def.shop) || level >= upgradeLevelCap(def) || state.coins < cost) return false;
   state.coins -= cost;
   state.upgrades[def.id]++;
   save();
   return true;
+}
+
+/** Player's staffing choice for a workplace; clamped to 0..slots. */
+export function setStaff(b: PlacedBuilding, staff: number): void {
+  const slots = jobSlots(b);
+  const n = Math.max(0, Math.min(slots, staff));
+  // "As many as fit" is stored as undefined so the building fills new slots after upgrades.
+  b.staff = n >= slots ? undefined : n;
+  assignJobs();
+  save();
+}
+
+export function togglePriority(b: PlacedBuilding): void {
+  b.priority = !b.priority;
+  assignJobs();
+  save();
+}
+
+/** First free spot for a footprint, searching rows outward from `nearRow`. */
+export function findFreeSpot(def: BuildingDef, nearRow = 0): { col: number; row: number } | undefined {
+  const rows = townRows();
+  const center = Math.max(0, Math.min(rows - 1, nearRow));
+  for (let d = 0; d < rows; d++) {
+    for (const row of d === 0 ? [center] : [center - d, center + d]) {
+      if (row < 0 || row >= rows) continue;
+      for (let col = 0; col < TOWN_COLS; col++) if (canPlace(def, col, row)) return { col, row };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Saves from before residents existed would suddenly earn nothing, so give them free cottages
+ * with enough residents to staff what they've built.
+ */
+export function grantStarterResidents(): void {
+  if (!needsStarterResidents) return;
+  const cottage = BUILDING_BY_ID.cottage;
+  let needed = totalJobs();
+  while (needed > 0) {
+    const spot = findFreeSpot(cottage);
+    if (!spot) break;
+    const home: PlacedBuilding = { id: state.nextBuildingId++, type: 'cottage', ...spot, level: 1, spent: 0 };
+    state.buildings.push(home);
+    needed -= housingOf(home);
+  }
+  // Fill the new homes right away instead of waiting for move-ins.
+  tickPopulation(1e9);
+  save();
 }

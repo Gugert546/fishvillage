@@ -3,6 +3,9 @@ import { GAME_WIDTH, GAME_HEIGHT } from './config';
 import { FishingScene } from './scenes/FishingScene';
 import { TownScene } from './scenes/TownScene';
 import { save, state } from './state';
+import { grantStarterResidents } from './town';
+
+grantStarterResidents();
 
 // New players start on the dock; once they've built something, open in town.
 const scenes = state.buildings.length > 0 ? [TownScene, FishingScene] : [FishingScene, TownScene];

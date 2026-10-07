@@ -151,7 +151,7 @@ export class FishingScene extends Phaser.Scene {
     const hud = <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Depth>(obj: T): T =>
       fixToScreen(obj).setDepth(UI_DEPTH);
 
-    this.topBar = new TopBar(this);
+    this.topBar = new TopBar(this, false);
     this.depthText = this.topBar.right;
     this.hookText = hud(makeText(this, GAME_WIDTH / 2, 70, '', 18).setOrigin(0.5));
     this.promptText = hud(makeText(this, GAME_WIDTH / 2, SURFACE_Y + 130, 'Tap to cast', 30).setOrigin(0.5));

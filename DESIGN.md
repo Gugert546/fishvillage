@@ -47,7 +47,7 @@ Offline earnings accrue while closed, capped (e.g. 4–8 h), cap raised by Harbo
 
 **Houses → residents → jobs → income.** Decorations and roads → happiness → bonuses.
 
-- **Housing:** Cottage (1×1, 2 residents), Apartment (2×2, 6 residents, more per level). Residents move in gradually while there's free housing; higher happiness = faster move-ins.
+- **Housing:** Cottage (2×2 tiles, 2 residents), Apartment (4×4, 6 residents, more per level). Roads and decorations will be 1×1. Residents move in gradually while there's free housing; higher happiness = faster move-ins.
 - **Jobs:** workplaces have job slots that grow with level. No workers = no income; each worker adds a share. Tackle/Bait Shops are **closed** (no gear sales) without a shopkeeper.
 - **Assignment:** automatic, with manual tweaks per workplace: desired staff `[−][+]` (0..slots) and a ⭐ priority flag that gets filled first.
 - **Happiness (0–100%):** per house, averaged over residents. Sources: decorations with an area of effect (Flower bed, Tree, Bench, Fountain…), adjacent road, employment. Range preview while placing.
@@ -64,7 +64,7 @@ Offline earnings accrue while closed, capped (e.g. 4–8 h), cap raised by Harbo
 4. ~~Passive income + offline earnings (4 h cap)~~
 5. ~~Fishing upgrades sold by shops; shop level caps upgrade level~~
 6. ~~Move buildings (free) and sell them (50% refund of everything spent)~~
-7. Town life A: houses, residents, jobs (auto + staff/priority), worker-based income, closed shops
+7. ~~Town life A: 14×14 grid (30px tiles), Cottage/Apartment, residents, jobs (auto + staff/priority), worker-based income, closed shops~~
 8. Town life B: happiness, decorations, roads, range preview, bonuses
 9. Town life C: walking villagers, building details
 10. Playtest & tune (`src/config.ts`), then content: Smokehouse, Aquarium, boats/new spots, quests, sound, art

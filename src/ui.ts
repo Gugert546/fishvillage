@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './config';
-import { incomePerSecond, takeOfflineEarnings } from './economy';
+import { incomePerSecond, takeOfflineReport } from './economy';
+import { housingCapacity } from './population';
 import { state } from './state';
 
 export const UI_DEPTH = 100;
@@ -127,21 +128,32 @@ export class Modal {
   }
 }
 
-/** Coins + income readout pinned to the top of the screen. */
+/** Coins, income and population pinned to the top of the screen. */
 export class TopBar {
   private coins: Phaser.GameObjects.Text;
   private income: Phaser.GameObjects.Text;
+  private population: Phaser.GameObjects.Text;
+  private personIcon: Phaser.GameObjects.Graphics;
+  /** Free slot on the right for scene-specific info (e.g. line depth while fishing). */
   readonly right: Phaser.GameObjects.Text;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, showPopulation = true) {
+    this.personIcon = scene.add.graphics();
+    this.personIcon.fillStyle(0xf1faee);
+    this.personIcon.fillCircle(0, -6, 4.5);
+    this.personIcon.fillRoundedRect(-6, 0, 12, 10, 4);
     const items = [
       scene.add.rectangle(0, 0, GAME_WIDTH, 44, 0x000000, 0.35).setOrigin(0),
       scene.add.circle(22, 22, 10, 0xf5c542).setStrokeStyle(2, 0xb8860b),
       (this.coins = makeText(scene, 40, 22, '', 20).setOrigin(0, 0.5)),
       (this.income = makeText(scene, 0, 24, '', 14).setOrigin(0, 0.5).setColor(COLORS.gold)),
+      this.personIcon,
+      (this.population = makeText(scene, 0, 22, '', 18).setOrigin(0, 0.5)),
       (this.right = makeText(scene, GAME_WIDTH - 14, 22, '', 18).setOrigin(1, 0.5)),
     ];
     for (const o of items) fixToScreen(o).setDepth(UI_DEPTH);
+    this.personIcon.setVisible(showPopulation);
+    this.population.setVisible(showPopulation);
     this.update();
   }
 
@@ -150,19 +162,28 @@ export class TopBar {
     const ips = incomePerSecond();
     this.income.setX(this.coins.x + this.coins.width + 10);
     this.income.setText(ips > 0 ? `+${ips < 10 ? ips.toFixed(1) : Math.round(ips)}/s` : '');
+
+    this.population.setText(`${state.residents.length}/${housingCapacity()}`);
+    this.population.setX(GAME_WIDTH - 14 - this.population.width);
+    this.personIcon.setPosition(this.population.x - 12, 22);
   }
 }
 
 /** Shows the welcome-back popup if income was earned while away. Returns the modal, if any. */
 export function showOfflineEarnings(scene: Phaser.Scene, onClose: () => void): Modal | undefined {
-  const amount = takeOfflineEarnings();
-  if (amount <= 0) return undefined;
-  const m = new Modal(scene, 230);
+  const report = takeOfflineReport();
+  if (!report) return undefined;
+  const extra = report.residents > 0 ? 30 : 0;
+  const m = new Modal(scene, 230 + extra);
   m.text(GAME_WIDTH / 2, m.top + 40, 'Welcome back!', 28);
   m.text(GAME_WIDTH / 2, m.top + 82, 'Your town earned', 18).setAlpha(0.8);
-  m.text(GAME_WIDTH / 2, m.top + 122, `+$${formatCoins(amount)}`, 34).setColor(COLORS.gold);
+  m.text(GAME_WIDTH / 2, m.top + 122, `+$${formatCoins(report.coins)}`, 34).setColor(COLORS.gold);
+  if (report.residents > 0) {
+    const who = report.residents === 1 ? '1 new resident' : `${report.residents} new residents`;
+    m.text(GAME_WIDTH / 2, m.top + 160, `and ${who} moved in`, 16).setAlpha(0.85);
+  }
   m.add(
-    makeButton(scene, GAME_WIDTH / 2, m.top + 185, 160, 46, 'Collect', () => {
+    makeButton(scene, GAME_WIDTH / 2, m.top + 185 + extra, 160, 46, 'Collect', () => {
       m.destroy();
       onClose();
     }),

@@ -165,13 +165,13 @@ export function upgradeCost(def: UpgradeDef, level: number): number {
 
 // --------------------------------------------------------------------- Town
 
-export const TOWN_COLS = 7;
-export const TILE = 60;
+export const TOWN_COLS = 14;
+export const TILE = 30;
 /** Left edge of the grid in world px. */
 export const GRID_X = (GAME_WIDTH - TOWN_COLS * TILE) / 2;
-export const START_ROWS = 5;
-export const ROWS_PER_EXPANSION = 2;
-export const MAX_ROWS = 40;
+export const START_ROWS = 14;
+export const ROWS_PER_EXPANSION = 4;
+export const MAX_ROWS = 80;
 export const expansionCost = (expansions: number) => Math.round(150 * Math.pow(1.9, expansions));
 
 /** Share of what you spent on a building that you get back when selling it. */
@@ -180,14 +180,30 @@ export const SELL_REFUND = 0.5;
 /** Passive income keeps accruing while the game is closed, up to this long. */
 export const OFFLINE_CAP_HOURS = 4;
 
+// --------------------------------------------------------------- Residents
+
+/** Seconds between new residents arriving while there's free housing. */
+export const MOVE_IN_SECONDS = 20;
+/** The very first resident of an empty town arrives quickly. */
+export const FIRST_MOVE_IN_SECONDS = 3;
+
+export const RESIDENT_NAMES = [
+  'Ada', 'Bo', 'Cora', 'Dag', 'Elin', 'Finn', 'Greta', 'Hugo', 'Ida', 'Jon', 'Kari', 'Leif', 'Maja', 'Nils',
+  'Olga', 'Per', 'Ragna', 'Siv', 'Tor', 'Ulla', 'Vera', 'Wilhelm', 'Yngve', 'Åse', 'Arne', 'Brit', 'Edvin',
+  'Frida', 'Gunnar', 'Hedda', 'Ivar', 'Johanna', 'Knut', 'Liv', 'Magnus', 'Nora', 'Oskar', 'Petra', 'Sigrid',
+  'Tove', 'Vidar', 'Astrid', 'Bjørn', 'Dina', 'Erik', 'Ingrid', 'Lars', 'Mette', 'Sander', 'Thea',
+];
+
 // ---------------------------------------------------------------- Buildings
 
-export type BuildingId = 'fishStand' | 'tackleShop' | 'baitShop';
+export type BuildingId = 'fishStand' | 'tackleShop' | 'baitShop' | 'cottage' | 'apartment';
+export type BuildingCategory = 'work' | 'housing';
 
 export interface BuildingDef {
   id: BuildingId;
   name: string;
   description: string;
+  category: BuildingCategory;
   /** Footprint in tiles. */
   w: number;
   h: number;
@@ -198,57 +214,102 @@ export interface BuildingDef {
   costGrowth: number;
   maxCount: number;
   maxLevel: number;
-  /** Coins per second at a given level. */
-  income: (level: number) => number;
   /** Cost to go from `level` to `level + 1`. */
   upgradeCost: (level: number) => number;
+  /** Workplaces: job slots at a given level. */
+  jobs?: (level: number) => number;
+  /** Workplaces: coins per second each worker earns at a given level. */
+  incomePerWorker?: (level: number) => number;
+  /** Housing: residents that fit at a given level. */
+  housing?: (level: number) => number;
 }
+
+/** One extra job slot every second level: 1, 1, 2, 2, 3… */
+const slotsEveryOtherLevel = (l: number) => 1 + Math.floor((l - 1) / 2);
 
 export const BUILDINGS: BuildingDef[] = [
   {
+    id: 'cottage',
+    name: 'Cottage',
+    description: 'A cosy little home.',
+    category: 'housing',
+    w: 2,
+    h: 2,
+    wall: 0xf1e3c8,
+    roof: 0xbc6c25,
+    baseCost: 40,
+    costGrowth: 1.25,
+    maxCount: 40,
+    maxLevel: 3,
+    upgradeCost: (l) => Math.round(60 * Math.pow(1.8, l - 1)),
+    housing: (l) => 1 + l,
+  },
+  {
+    id: 'apartment',
+    name: 'Apartment',
+    description: 'Lots of homes on a small plot.',
+    category: 'housing',
+    w: 4,
+    h: 4,
+    wall: 0xc9ada7,
+    roof: 0x4a4e69,
+    baseCost: 400,
+    costGrowth: 1.4,
+    maxCount: 12,
+    maxLevel: 5,
+    upgradeCost: (l) => Math.round(350 * Math.pow(1.9, l - 1)),
+    housing: (l) => 4 + 2 * l,
+  },
+  {
     id: 'fishStand',
     name: 'Fish Stand',
-    description: 'Sells fish to passers-by. Earns coins over time.',
-    w: 1,
-    h: 1,
+    description: 'Sells fish to passers-by.',
+    category: 'work',
+    w: 2,
+    h: 2,
     wall: 0xe9d8a6,
     roof: 0x2a9d8f,
     baseCost: 50,
     costGrowth: 1.5,
     maxCount: 12,
     maxLevel: 10,
-    income: (l) => 0.5 * l * Math.pow(1.15, l - 1),
     upgradeCost: (l) => Math.round(40 * Math.pow(1.7, l)),
+    jobs: slotsEveryOtherLevel,
+    incomePerWorker: (l) => 0.5 * Math.pow(1.15, l - 1),
   },
   {
     id: 'tackleShop',
     name: 'Tackle Shop',
-    description: 'Sells longer lines, bigger hooks and faster reels.',
-    w: 2,
-    h: 2,
+    description: 'Sells lines, hooks and reels. Needs a shopkeeper.',
+    category: 'work',
+    w: 4,
+    h: 4,
     wall: 0xd4a373,
     roof: 0x9d4b3a,
     baseCost: 150,
     costGrowth: 1,
     maxCount: 1,
     maxLevel: 5,
-    income: () => 0,
     upgradeCost: (l) => Math.round(300 * Math.pow(2.5, l - 1)),
+    jobs: slotsEveryOtherLevel,
+    incomePerWorker: (l) => 0.3 * l,
   },
   {
     id: 'baitShop',
     name: 'Bait Shop',
-    description: 'Sells Lucky Lures and earns a little on the side.',
-    w: 1,
-    h: 1,
+    description: 'Sells Lucky Lures. Needs a shopkeeper.',
+    category: 'work',
+    w: 2,
+    h: 2,
     wall: 0xcdb4db,
     roof: 0x5e548e,
     baseCost: 120,
     costGrowth: 1,
     maxCount: 1,
     maxLevel: 3,
-    income: (l) => 0.2 * l,
     upgradeCost: (l) => Math.round(400 * Math.pow(3, l - 1)),
+    jobs: slotsEveryOtherLevel,
+    incomePerWorker: (l) => 0.2 * l,
   },
 ];
 

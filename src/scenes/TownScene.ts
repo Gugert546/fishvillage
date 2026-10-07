@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import {
   BUILDINGS,
-  BUILDING_BY_ID,
   GAME_HEIGHT,
   GAME_WIDTH,
   GRID_X,
@@ -12,7 +11,18 @@ import {
   upgradeCost,
   type BuildingDef,
 } from '../config';
-import { tickEconomy } from '../economy';
+import { takeArrivals, tickEconomy } from '../economy';
+import {
+  defOf,
+  housingOf,
+  jobSlots,
+  residentsOf,
+  shopOpen,
+  staffTarget,
+  unemployedCount,
+  workerCounts,
+  workersOf,
+} from '../population';
 import { state, type PlacedBuilding } from '../state';
 import { makeTextures } from '../textures';
 import {
@@ -22,11 +32,14 @@ import {
   canPlace,
   countOwned,
   expand,
+  findFreeSpot,
   moveBuilding,
   nextExpansionCost,
   placeBuilding,
   sellBuilding,
   sellValue,
+  setStaff,
+  togglePriority,
   townRows,
   upgradeBuilding,
   upgradeLevelCap,
@@ -47,12 +60,13 @@ import {
 // World layout: grid rows grow upward from y = 0; the shore and dock sit below it.
 const SHORE_H = 40;
 const WORLD_BOTTOM = 360;
-const DOCK = { x: GRID_X + 3 * TILE + 5, y: SHORE_H - 10, w: 50, h: 230 };
+const DOCK = { x: GRID_X + 6 * TILE + 5, y: SHORE_H - 10, w: 50, h: 230 };
 /** Space above the last unlocked row for the expansion strip and some forest. */
 const TOP_MARGIN = ROWS_PER_EXPANSION * TILE + 160;
 const BOTTOM_BAR_H = 90;
 const DRAG_THRESHOLD = 8;
 const INCOME_POP_MS = 4000;
+const STATUS_CHECK_MS = 500;
 
 interface Gesture {
   startY: number;
@@ -76,6 +90,12 @@ interface Ghost {
   moving?: PlacedBuilding;
 }
 
+/** What a building's view currently shows; redrawn when this changes. */
+interface ViewStatus {
+  level: number;
+  unstaffed: boolean;
+}
+
 /** World-space top-left of a footprint whose bottom-left tile is (col, row). */
 function tileToWorld(col: number, row: number, h: number): { x: number; y: number } {
   return { x: GRID_X + col * TILE, y: -(row + h) * TILE };
@@ -85,14 +105,19 @@ function worldToTile(x: number, y: number): { col: number; row: number } {
   return { col: Math.floor((x - GRID_X) / TILE), row: Math.floor(-y / TILE) };
 }
 
+const fmtRate = (v: number) => (v < 10 ? v.toFixed(1) : Math.round(v).toString());
+
 export class TownScene extends Phaser.Scene {
   private topBar!: TopBar;
   private ground!: Phaser.GameObjects.Graphics;
   private gridLines!: Phaser.GameObjects.Graphics;
   private expandButton?: Button;
   private buildingViews = new Map<number, Phaser.GameObjects.Container>();
+  private viewStatus = new Map<number, ViewStatus>();
 
   private modal?: Modal;
+  /** Building whose panel is open, so it can refresh when workers change. */
+  private panelFor?: PlacedBuilding;
   private gesture?: Gesture;
   private velocity = 0;
   private ghost?: Ghost;
@@ -108,7 +133,9 @@ export class TownScene extends Phaser.Scene {
 
   create(): void {
     this.buildingViews = new Map();
+    this.viewStatus = new Map();
     this.modal = undefined;
+    this.panelFor = undefined;
     this.gesture = undefined;
     this.ghost = undefined;
     this.velocity = 0;
@@ -119,7 +146,7 @@ export class TownScene extends Phaser.Scene {
     this.gridLines = this.add.graphics().setDepth(1);
     this.drawShoreAndDock();
     this.rebuildGround();
-    for (const b of state.buildings) this.addBuildingView(b);
+    this.refreshBuildingViews();
 
     this.topBar = new TopBar(this);
     this.createBottomBars();
@@ -128,13 +155,16 @@ export class TownScene extends Phaser.Scene {
     const cam = this.cameras.main;
     cam.scrollY = WORLD_BOTTOM - GAME_HEIGHT;
 
+    takeArrivals(); // Don't replay arrivals that happened while fishing.
     this.time.addEvent({ delay: INCOME_POP_MS, loop: true, callback: () => this.showIncomePops() });
+    this.time.addEvent({ delay: STATUS_CHECK_MS, loop: true, callback: () => this.refreshBuildingViews() });
   }
 
   update(_time: number, deltaMs: number): void {
     const dt = Math.min(deltaMs / 1000, 0.05);
     tickEconomy();
     this.topBar.update();
+    this.showArrivals();
     if (!this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined));
 
     if (!this.gesture && Math.abs(this.velocity) > 5) {
@@ -175,13 +205,13 @@ export class TownScene extends Phaser.Scene {
       g.fillRect(GRID_X, stripTop, TOWN_COLS * TILE, ROWS_PER_EXPANSION * TILE);
     }
 
-    // Unlocked land
+    // Unlocked land, checkered in 2×2 blocks so the fine grid stays calm
     g.fillStyle(0x74c69d);
     g.fillRect(0, -rows * TILE, GAME_WIDTH, rows * TILE);
-    g.fillStyle(0x95d5b2);
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < TOWN_COLS; c++) {
-        if ((r + c) % 2 === 0) g.fillRect(GRID_X + c * TILE, -(r + 1) * TILE, TILE, TILE);
+    g.fillStyle(0x82cca5);
+    for (let r = 0; r < rows; r += 2) {
+      for (let c = 0; c < TOWN_COLS; c += 2) {
+        if ((r / 2 + c / 2) % 2 === 0) g.fillRect(GRID_X + c * TILE, -(r + 2) * TILE, TILE * 2, TILE * 2);
       }
     }
     // Fence along the top edge
@@ -195,10 +225,7 @@ export class TownScene extends Phaser.Scene {
       const cost = nextExpansionCost();
       const y = -(rows + ROWS_PER_EXPANSION / 2) * TILE;
       this.expandButton = makeButton(this, GAME_WIDTH / 2, y, 250, 52, `Expand town  $${formatCoins(cost)}`, () => {
-        if (expand()) {
-          this.rebuildGround();
-          this.cameras.main.setBounds(0, this.topY(), GAME_WIDTH, WORLD_BOTTOM - this.topY());
-        }
+        if (expand()) this.rebuildGround();
       }, COLORS.buy, 20);
       this.expandButton.setDepth(3);
     }
@@ -207,10 +234,12 @@ export class TownScene extends Phaser.Scene {
     this.drawGridLines();
   }
 
+  /** Grid lines only show while placing, where precision matters. */
   private drawGridLines(): void {
-    const rows = townRows();
     const g = this.gridLines.clear();
-    g.lineStyle(1, 0x000000, this.ghost ? 0.25 : 0.06);
+    if (!this.ghost) return;
+    const rows = townRows();
+    g.lineStyle(1, 0x000000, 0.14);
     for (let c = 0; c <= TOWN_COLS; c++) g.lineBetween(GRID_X + c * TILE, 0, GRID_X + c * TILE, -rows * TILE);
     for (let r = 0; r <= rows; r++) g.lineBetween(GRID_X, -r * TILE, GRID_X + TOWN_COLS * TILE, -r * TILE);
   }
@@ -241,25 +270,40 @@ export class TownScene extends Phaser.Scene {
 
   // ---------------------------------------------------------- Buildings
 
-  private drawBuilding(def: BuildingDef, level?: number): Phaser.GameObjects.Container {
+  private drawBuilding(def: BuildingDef, status?: ViewStatus): Phaser.GameObjects.Container {
     const pw = def.w * TILE;
     const ph = def.h * TILE;
     const eave = ph * 0.42;
     const g = this.add.graphics();
     g.fillStyle(0x000000, 0.18);
     g.fillRect(8, 10, pw - 10, ph - 12);
+
+    if (def.id === 'cottage') {
+      g.fillStyle(0x6b4f3a);
+      g.fillRect(pw * 0.68, 8, 7, 16); // chimney
+    }
     g.fillStyle(def.wall);
     g.fillRect(6, eave - 4, pw - 12, ph - eave - 2);
     g.fillStyle(def.roof);
     g.fillTriangle(1, eave, pw / 2, 3, pw - 1, eave);
-    g.fillStyle(0x5c3a1e);
+
     const doorH = Math.min(22, ph * 0.3);
-    g.fillRect(pw / 2 - 7, ph - 6 - doorH, 14, doorH);
-    if (def.w > 1) {
+    if (def.id === 'apartment') {
+      // Rows of lit windows
+      g.fillStyle(0xffe8a3);
+      for (let wy = eave + 8; wy < ph - doorH - 12; wy += 22) {
+        for (let wx = 16; wx < pw - 24; wx += 24) g.fillRect(wx, wy, 14, 12);
+      }
+    } else if (def.w >= 4) {
       g.fillStyle(0xa8def0);
       g.fillRect(16, eave + 10, 22, 18);
       g.fillRect(pw - 38, eave + 10, 22, 18);
+    } else if (def.id === 'cottage') {
+      g.fillStyle(0xffe8a3);
+      g.fillRect(12, ph - 26, 10, 10);
     }
+    g.fillStyle(0x5c3a1e);
+    g.fillRect(pw / 2 - 7, ph - 6 - doorH, 14, doorH);
 
     const parts: Phaser.GameObjects.GameObject[] = [g];
     if (def.id === 'fishStand') parts.push(this.add.image(pw / 2, eave + 10, 'fish-mackerel').setScale(0.7));
@@ -273,44 +317,101 @@ export class TownScene extends Phaser.Scene {
       worm.strokePath();
       parts.push(worm);
     }
-    if (level !== undefined) {
+    if (status) {
       parts.push(this.add.circle(pw - 10, 10, 10, 0x1d3557).setStrokeStyle(2, 0xffffff));
-      parts.push(makeText(this, pw - 10, 10, `${level}`, 12).setOrigin(0.5));
+      parts.push(makeText(this, pw - 10, 10, `${status.level}`, 12).setOrigin(0.5));
+      if (status.unstaffed) {
+        // "Help wanted": a workplace with nobody working there
+        const pip = this.add.circle(10, 10, 9, 0xe63946).setStrokeStyle(2, 0xffffff);
+        const mark = makeText(this, 10, 10, '!', 13).setOrigin(0.5);
+        this.tweens.add({ targets: [pip, mark], scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
+        parts.push(pip, mark);
+      }
     }
     return this.add.container(0, 0, parts);
   }
 
-  private addBuildingView(b: PlacedBuilding): void {
-    const def = BUILDING_BY_ID[b.type];
+  private addBuildingView(b: PlacedBuilding, status: ViewStatus): void {
+    const def = defOf(b);
     this.buildingViews.get(b.id)?.destroy();
-    const view = this.drawBuilding(def, b.level);
+    const view = this.drawBuilding(def, status);
     const pos = tileToWorld(b.col, b.row, def.h);
     // Lower rows draw in front so tall roofs overlap neatly.
-    view.setPosition(pos.x, pos.y).setDepth(10 + (100 - b.row) * 0.01);
+    view.setPosition(pos.x, pos.y).setDepth(10 + (1000 - b.row) * 0.001);
+    if (this.ghost?.moving === b) view.setAlpha(0.3);
     this.buildingViews.set(b.id, view);
+    this.viewStatus.set(b.id, status);
+  }
+
+  /** Redraws any building whose level or staffing changed, and drops views of removed ones. */
+  private refreshBuildingViews(): void {
+    const counts = workerCounts();
+    const alive = new Set<number>();
+    for (const b of state.buildings) {
+      alive.add(b.id);
+      const status: ViewStatus = { level: b.level, unstaffed: jobSlots(b) > 0 && !counts.get(b.id) };
+      const old = this.viewStatus.get(b.id);
+      const view = this.buildingViews.get(b.id);
+      if (!view || !old || old.level !== status.level || old.unstaffed !== status.unstaffed) {
+        this.addBuildingView(b, status);
+      } else {
+        // Keep the position current (cheap, and covers moves).
+        const pos = tileToWorld(b.col, b.row, defOf(b).h);
+        view.setPosition(pos.x, pos.y);
+      }
+    }
+    for (const [id, view] of this.buildingViews) {
+      if (!alive.has(id)) {
+        view.destroy();
+        this.buildingViews.delete(id);
+        this.viewStatus.delete(id);
+      }
+    }
   }
 
   private buildingAt(col: number, row: number): PlacedBuilding | undefined {
     return state.buildings.find((b) => {
-      const def = BUILDING_BY_ID[b.type];
+      const def = defOf(b);
       return col >= b.col && col < b.col + def.w && row >= b.row && row < b.row + def.h;
     });
   }
 
+  private isOnScreen(b: PlacedBuilding): boolean {
+    const cam = this.cameras.main;
+    const def = defOf(b);
+    const pos = tileToWorld(b.col, b.row, def.h);
+    return pos.y < cam.scrollY + GAME_HEIGHT && pos.y + def.h * TILE > cam.scrollY;
+  }
+
+  private floatText(b: PlacedBuilding, text: string, size: number, color: string): void {
+    const def = defOf(b);
+    const pos = tileToWorld(b.col, b.row, def.h);
+    const pop = makeText(this, pos.x + (def.w * TILE) / 2, pos.y + 8, text, size).setOrigin(0.5).setDepth(50);
+    pop.setColor(color);
+    // Keep labels on screen for buildings at the edges.
+    pop.setX(Phaser.Math.Clamp(pop.x, pop.width / 2 + 4, GAME_WIDTH - pop.width / 2 - 4));
+    this.tweens.add({ targets: pop, y: pop.y - 36, alpha: 0, duration: 1600, onComplete: () => pop.destroy() });
+  }
+
   private showIncomePops(): void {
     if (this.modal) return;
-    const cam = this.cameras.main;
+    const counts = workerCounts();
     for (const b of state.buildings) {
-      const def = BUILDING_BY_ID[b.type];
-      const amount = def.income(b.level) * (INCOME_POP_MS / 1000);
-      if (amount <= 0) continue;
-      const pos = tileToWorld(b.col, b.row, def.h);
-      if (pos.y > cam.scrollY + GAME_HEIGHT || pos.y + def.h * TILE < cam.scrollY) continue;
-      const label = `+$${amount < 10 ? amount.toFixed(1) : formatCoins(amount)}`;
-      const pop = makeText(this, pos.x + (def.w * TILE) / 2, pos.y + 8, label, 15).setOrigin(0.5).setDepth(50);
-      pop.setColor(COLORS.gold);
-      this.tweens.add({ targets: pop, y: pop.y - 36, alpha: 0, duration: 1400, onComplete: () => pop.destroy() });
+      const perWorker = defOf(b).incomePerWorker?.(b.level) ?? 0;
+      const amount = perWorker * (counts.get(b.id) ?? 0) * (INCOME_POP_MS / 1000);
+      if (amount <= 0 || !this.isOnScreen(b)) continue;
+      this.floatText(b, `+$${amount < 10 ? amount.toFixed(1) : formatCoins(amount)}`, 15, COLORS.gold);
     }
+  }
+
+  private showArrivals(): void {
+    const arrived = takeArrivals();
+    if (arrived.length === 0) return;
+    for (const r of arrived) {
+      const home = state.buildings.find((b) => b.id === r.home);
+      if (home && this.isOnScreen(home)) this.floatText(home, `${r.name} moved in`, 14, '#ffffff');
+    }
+    if (this.panelFor) this.openBuildingPanel(this.panelFor);
   }
 
   // --------------------------------------------------------------- Input
@@ -373,12 +474,13 @@ export class TownScene extends Phaser.Scene {
   }
 
   private handleTap(x: number, y: number): void {
-    const tile = worldToTile(x, y);
     if (this.ghost) {
+      // Center the footprint on the finger.
       const { def } = this.ghost;
-      this.moveGhost(tile.col - Math.floor((def.w - 1) / 2), tile.row - Math.floor((def.h - 1) / 2));
+      this.moveGhost(Math.round((x - GRID_X) / TILE - def.w / 2), Math.round(-y / TILE - def.h / 2));
       return;
     }
+    const tile = worldToTile(x, y);
     const b = this.buildingAt(tile.col, tile.row);
     if (b && tile.col >= 0 && tile.col < TOWN_COLS && tile.row >= 0) {
       this.openBuildingPanel(b);
@@ -414,7 +516,7 @@ export class TownScene extends Phaser.Scene {
   }
 
   private enterBuildMode(def: BuildingDef, moving?: PlacedBuilding): void {
-    const view = this.drawBuilding(def, moving?.level).setAlpha(0.75);
+    const view = this.drawBuilding(def).setAlpha(0.75);
     const outline = this.add.rectangle(0, 0, def.w * TILE, def.h * TILE).setOrigin(0).setStrokeStyle(3, 0xffffff);
     view.add(outline);
     view.setDepth(40);
@@ -422,7 +524,9 @@ export class TownScene extends Phaser.Scene {
     // Leave a faint copy where the building stands now.
     if (moving) this.buildingViews.get(moving.id)?.setAlpha(0.3);
 
-    const spot = moving ? { col: moving.col, row: moving.row } : this.findFreeSpot(def);
+    const cam = this.cameras.main;
+    const centerRow = worldToTile(0, cam.scrollY + GAME_HEIGHT / 2).row;
+    const spot = moving ? { col: moving.col, row: moving.row } : (findFreeSpot(def, centerRow) ?? { col: 0, row: 0 });
     this.moveGhost(spot.col, spot.row);
     const pos = tileToWorld(spot.col, spot.row, def.h);
     this.scrollTo(pos.y + (def.h * TILE) / 2 - GAME_HEIGHT / 2);
@@ -442,18 +546,6 @@ export class TownScene extends Phaser.Scene {
     this.buildBar.setVisible(false);
     this.hint.setVisible(false);
     this.drawGridLines();
-  }
-
-  /** First free spot, searching outward from the rows currently on screen. */
-  private findFreeSpot(def: BuildingDef): { col: number; row: number } {
-    const cam = this.cameras.main;
-    const centerRow = Phaser.Math.Clamp(worldToTile(0, cam.scrollY + GAME_HEIGHT / 2).row, 0, townRows() - 1);
-    for (let d = 0; d < townRows(); d++) {
-      for (const row of [centerRow - d, centerRow + d]) {
-        for (let col = 0; col < TOWN_COLS; col++) if (canPlace(def, col, row)) return { col, row };
-      }
-    }
-    return { col: 0, row: 0 };
   }
 
   private moveGhost(col: number, row: number): void {
@@ -481,18 +573,17 @@ export class TownScene extends Phaser.Scene {
     if (!g) return;
     if (g.moving) {
       if (!moveBuilding(g.moving, g.col, g.row)) return;
-      const moved = g.moving;
       this.exitBuildMode();
-      this.addBuildingView(moved);
+      this.refreshBuildingViews();
       return;
     }
     const b = placeBuilding(g.def, g.col, g.row);
     if (!b) return;
-    this.addBuildingView(b);
+    this.exitBuildMode();
+    this.refreshBuildingViews();
     const view = this.buildingViews.get(b.id)!;
     view.setScale(0.8);
     this.tweens.add({ targets: view, scale: 1, duration: 250, ease: 'Back.Out' });
-    this.exitBuildMode();
   }
 
   // -------------------------------------------------------------- Panels
@@ -500,15 +591,16 @@ export class TownScene extends Phaser.Scene {
   private closeModal(): void {
     this.modal?.destroy();
     this.modal = undefined;
+    this.panelFor = undefined;
   }
 
   private openBuildMenu(): void {
     this.closeModal();
-    const rowH = 112;
-    const m = (this.modal = new Modal(this, 120 + BUILDINGS.length * rowH));
+    const rowH = 108;
+    const m = (this.modal = new Modal(this, 116 + BUILDINGS.length * rowH));
     m.text(GAME_WIDTH / 2, m.top + 32, 'Build', 28);
 
-    let y = m.top + 110;
+    let y = m.top + 104;
     for (const def of BUILDINGS) {
       const owned = countOwned(def.id);
       const cost = buildCost(def);
@@ -516,9 +608,10 @@ export class TownScene extends Phaser.Scene {
       const preview = this.drawBuilding(def).setScale(Math.min(1, 56 / (def.w * TILE)));
       preview.setPosition(36, y - 28);
       m.add(preview);
-      m.text(110, y - 34, `${def.name}  ${def.w}×${def.h}`, 18, 0);
-      m.text(110, y - 20, def.description, 13, 0).setOrigin(0, 0).setWordWrapWidth(185).setAlpha(0.8);
-      if (def.maxCount > 1) m.text(110, y + 38, `Owned ${owned}/${def.maxCount}`, 12, 0).setAlpha(0.6);
+      m.text(110, y - 34, def.name, 18, 0);
+      m.text(110, y - 12, this.buildSummary(def), 13, 0).setColor(COLORS.gold);
+      m.text(110, y + 2, def.description, 13, 0).setOrigin(0, 0).setWordWrapWidth(190).setAlpha(0.8);
+      if (def.maxCount > 1) m.text(110, y + 42, `Owned ${owned}/${def.maxCount}`, 12, 0).setAlpha(0.6);
       const affordable = state.coins >= cost;
       const btn = makeButton(this, GAME_WIDTH - 80, y, 100, 46, maxed ? 'Built' : `$${formatCoins(cost)}`, () => {
         if (maxed || !affordable) return;
@@ -532,45 +625,103 @@ export class TownScene extends Phaser.Scene {
     m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral));
   }
 
+  /** Short stats line for the build menu, e.g. "1 job · $0.5/s each". */
+  private buildSummary(def: BuildingDef): string {
+    const size = `${def.w}×${def.h}`;
+    if (def.housing) return `${size} · ${def.housing(1)} residents`;
+    const jobs = def.jobs?.(1) ?? 0;
+    const pay = def.incomePerWorker?.(1) ?? 0;
+    const jobText = `${jobs} job${jobs === 1 ? '' : 's'}`;
+    return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/s each` : `${size} · ${jobText}`;
+  }
+
   private openBuildingPanel(b: PlacedBuilding): void {
     this.closeModal();
-    const def = BUILDING_BY_ID[b.type];
+    this.panelFor = b;
+    const def = defOf(b);
     const sells = UPGRADES.filter((u) => u.shop === def.id);
-    const hasIncome = def.income(b.level) > 0;
-    const m = (this.modal = new Modal(this, 300 + (hasIncome ? 40 : 0) + sells.length * 72));
+    const isHome = !!def.housing;
+    const isWork = !!def.jobs;
+    const height = 104 + (isHome ? 70 : 0) + (isWork ? 156 : 0) + 70 + sells.length * 66 + 130;
+    const m = (this.modal = new Modal(this, height));
     const reopen = () => this.openBuildingPanel(b);
+    const right = GAME_WIDTH - 90;
 
     m.text(GAME_WIDTH / 2, m.top + 32, `${def.name}  ·  Lv ${b.level}`, 24);
     m.text(GAME_WIDTH / 2, m.top + 64, def.description, 14)
       .setAlpha(0.8)
       .setAlign('center')
       .setWordWrapWidth(GAME_WIDTH - 90);
-    let y = m.top + 104;
+    let y = m.top + 108;
 
-    if (hasIncome) {
-      const now = def.income(b.level);
-      const next = def.income(b.level + 1);
-      const fmt = (v: number) => (v < 10 ? v.toFixed(1) : Math.round(v).toString());
-      const text = b.level < def.maxLevel ? `Income $${fmt(now)}/s → $${fmt(next)}/s` : `Income $${fmt(now)}/s`;
-      m.text(40, y, text, 16, 0).setColor(COLORS.gold);
-      y += 40;
+    if (isHome) {
+      const residents = residentsOf(b);
+      m.text(40, y, `Residents ${residents.length}/${housingOf(b)}`, 18, 0);
+      const names = residents.length > 0 ? residents.map((r) => r.name).join(', ') : 'Waiting for someone to move in…';
+      m.text(40, y + 26, names, 14, 0).setAlpha(0.75).setWordWrapWidth(GAME_WIDTH - 90);
+      y += 70;
     }
+
+    if (isWork) {
+      const workers = workersOf(b);
+      const slots = jobSlots(b);
+      const target = staffTarget(b);
+      m.text(40, y, `Workers ${workers.length}/${slots}`, 18, 0);
+      const star = makeButton(this, right, y, 120, 38, b.priority ? '★ Priority' : '☆ Priority', () => {
+        togglePriority(b);
+        reopen();
+      }, b.priority ? COLORS.primary : COLORS.neutral, 16);
+      m.add(star);
+
+      // Staffing: how many of the slots the player wants filled.
+      const sy = y + 46;
+      m.text(40, sy, 'Staff', 16, 0).setAlpha(0.8);
+      const minus = makeButton(this, 120, sy, 44, 38, '−', () => {
+        setStaff(b, target - 1);
+        reopen();
+      }, COLORS.neutral, 22);
+      minus.setEnabledLook(target > 0, COLORS.neutral);
+      m.text(162, sy, `${target}`, 20);
+      const plus = makeButton(this, 204, sy, 44, 38, '+', () => {
+        setStaff(b, target + 1);
+        reopen();
+      }, COLORS.neutral, 22);
+      plus.setEnabledLook(target < slots, COLORS.neutral);
+      m.add(minus, plus);
+
+      const perWorker = def.incomePerWorker?.(b.level) ?? 0;
+      let status: string;
+      let color: string = COLORS.gold;
+      if (workers.length > 0) {
+        status = perWorker > 0 ? `Earning $${fmtRate(perWorker * workers.length)}/s` : 'Open for business';
+      } else {
+        color = '#ff8a8a';
+        const closed = sells.length > 0 ? 'Closed: needs a shopkeeper. ' : 'No workers. ';
+        status = closed + (target === 0 ? 'Raise staff to hire.' : unemployedCount() === 0 ? 'Build homes for more residents.' : '');
+      }
+      m.text(40, y + 88, status, 15, 0).setColor(color).setWordWrapWidth(GAME_WIDTH - 90);
+      if (workers.length > 0) {
+        m.text(40, y + 116, workers.map((r) => r.name).join(', '), 14, 0).setAlpha(0.75).setWordWrapWidth(GAME_WIDTH - 90);
+      }
+      y += 156;
+    }
+
+    // Level upgrade
     const maxed = b.level >= def.maxLevel;
     const cost = def.upgradeCost(b.level);
-    m.text(40, y, maxed ? 'Fully upgraded' : `Upgrade to Lv ${b.level + 1}`, 18, 0);
+    m.text(40, y - 10, maxed ? 'Fully upgraded' : `Upgrade to Lv ${b.level + 1}`, 18, 0);
     if (!maxed) {
-      const btn = makeButton(this, GAME_WIDTH - 90, y, 110, 46, `$${formatCoins(cost)}`, () => {
-        if (upgradeBuilding(b)) {
-          this.addBuildingView(b);
-          reopen();
-        }
+      m.text(40, y + 14, this.upgradeGain(b), 14, 0).setAlpha(0.75);
+      const btn = makeButton(this, right, y, 110, 46, `$${formatCoins(cost)}`, () => {
+        if (upgradeBuilding(b)) reopen();
       }, COLORS.buy, 18);
       btn.setEnabledLook(state.coins >= cost, COLORS.buy);
       m.add(btn);
     }
+    y += 70;
 
     // Fishing gear sold here
-    y += 72;
+    const open = sells.length > 0 && shopOpen(def.id);
     for (const up of sells) {
       const level = state.upgrades[up.id];
       const cap = upgradeLevelCap(up);
@@ -580,13 +731,14 @@ export class TownScene extends Phaser.Scene {
       m.text(40, y + 14, desc, 14, 0).setAlpha(0.75);
       if (level < up.maxLevel) {
         const locked = level >= cap;
-        const btn = makeButton(this, GAME_WIDTH - 90, y, 110, 46, locked ? `Shop Lv${b.level + 1}` : `$${formatCoins(upCost)}`, () => {
+        const label = !open ? 'Closed' : locked ? `Shop Lv${b.level + 1}` : `$${formatCoins(upCost)}`;
+        const btn = makeButton(this, right, y, 110, 46, label, () => {
           if (buyUpgrade(up)) reopen();
-        }, COLORS.buy, locked ? 15 : 18);
-        btn.setEnabledLook(!locked && state.coins >= upCost, COLORS.buy);
+        }, COLORS.buy, open && !locked ? 18 : 15);
+        btn.setEnabledLook(open && !locked && state.coins >= upCost, COLORS.buy);
         m.add(btn);
       }
-      y += 72;
+      y += 66;
     }
 
     const actionsY = m.top + m.height - 92;
@@ -600,31 +752,50 @@ export class TownScene extends Phaser.Scene {
     );
   }
 
+  /** What the next level brings, e.g. "+1 job slot" or "+1 resident". */
+  private upgradeGain(b: PlacedBuilding): string {
+    const def = defOf(b);
+    const gains: string[] = [];
+    if (def.housing) {
+      const more = def.housing(b.level + 1) - def.housing(b.level);
+      if (more > 0) gains.push(`+${more} resident${more === 1 ? '' : 's'}`);
+    }
+    if (def.jobs) {
+      const more = def.jobs(b.level + 1) - def.jobs(b.level);
+      if (more > 0) gains.push(`+${more} job slot${more === 1 ? '' : 's'}`);
+    }
+    if (def.incomePerWorker) {
+      const now = def.incomePerWorker(b.level);
+      const next = def.incomePerWorker(b.level + 1);
+      if (now > 0 && next > now) gains.push(`$${fmtRate(next)}/s per worker`);
+    }
+    if (UPGRADES.some((u) => u.shop === def.id)) gains.push('better gear');
+    return gains.join(', ');
+  }
+
   private confirmSell(b: PlacedBuilding): void {
     this.closeModal();
-    const def = BUILDING_BY_ID[b.type];
+    const def = defOf(b);
     const sellsGear = UPGRADES.some((u) => u.shop === def.id);
+    const homeless = residentsOf(b).length;
     const value = sellValue(b);
-    const m = (this.modal = new Modal(this, sellsGear ? 250 : 220));
+    const notes: string[] = [];
+    if (sellsGear) notes.push('Gear you already bought is kept.');
+    if (homeless > 0) notes.push('Residents move to free homes, or leave town.');
+    const m = (this.modal = new Modal(this, 220 + notes.length * 30));
 
     m.text(GAME_WIDTH / 2, m.top + 36, `Sell ${def.name}?`, 26);
     m.text(GAME_WIDTH / 2, m.top + 80, `You get $${formatCoins(value)} back.`, 18).setColor(COLORS.gold);
-    if (sellsGear) m.text(GAME_WIDTH / 2, m.top + 112, 'Gear you already bought is kept.', 15).setAlpha(0.8);
+    notes.forEach((n, i) => m.text(GAME_WIDTH / 2, m.top + 112 + i * 28, n, 15).setAlpha(0.8));
     const buttonsY = m.top + m.height - 44;
     // Keep sits where the panel's Sell button was, so a double tap doesn't sell by accident.
     m.add(
       makeButton(this, GAME_WIDTH * 0.7, buttonsY, 150, 48, 'Keep', () => this.openBuildingPanel(b), COLORS.neutral),
       makeButton(this, GAME_WIDTH * 0.3, buttonsY, 150, 48, 'Sell', () => {
         this.closeModal();
-        const pos = tileToWorld(b.col, b.row, def.h);
+        this.floatText(b, `+$${formatCoins(value)}`, 22, COLORS.gold);
         sellBuilding(b);
-        this.buildingViews.get(b.id)?.destroy();
-        this.buildingViews.delete(b.id);
-        const pop = makeText(this, pos.x + (def.w * TILE) / 2, pos.y + (def.h * TILE) / 2, `+$${formatCoins(value)}`, 22)
-          .setOrigin(0.5)
-          .setDepth(50)
-          .setColor(COLORS.gold);
-        this.tweens.add({ targets: pop, y: pop.y - 50, alpha: 0, duration: 1200, onComplete: () => pop.destroy() });
+        this.refreshBuildingViews();
       }, COLORS.danger),
     );
   }

@@ -1,8 +1,9 @@
-// Passive income. Income is computed from wall-clock time, so it keeps flowing while the
+// Passive income and town growth. Both run on wall-clock time, so they keep going while the
 // app is backgrounded or closed (up to OFFLINE_CAP_HOURS).
 
-import { BUILDING_BY_ID, OFFLINE_CAP_HOURS } from './config';
-import { save, state } from './state';
+import { OFFLINE_CAP_HOURS } from './config';
+import { defOf, tickPopulation, workerCounts } from './population';
+import { save, state, type Resident } from './state';
 
 /** Gaps longer than this count as "you were away" and get a welcome-back popup. */
 const AWAY_THRESHOLD_S = 60;
@@ -10,10 +11,15 @@ const AUTOSAVE_MS = 5000;
 
 let lastTick = state.lastSaved;
 let lastSave = Date.now();
-let pendingOffline = 0;
+let pendingOffline = { coins: 0, residents: 0 };
+let arrivals: Resident[] = [];
 
 export function incomePerSecond(): number {
-  return state.buildings.reduce((sum, b) => sum + BUILDING_BY_ID[b.type].income(b.level), 0);
+  const counts = workerCounts();
+  return state.buildings.reduce((sum, b) => {
+    const workers = counts.get(b.id) ?? 0;
+    return sum + workers * (defOf(b).incomePerWorker?.(b.level) ?? 0);
+  }, 0);
 }
 
 /** Call every frame from the active scene. */
@@ -21,10 +27,19 @@ export function tickEconomy(): void {
   const now = Date.now();
   const gapS = Math.max(0, (now - lastTick) / 1000);
   lastTick = now;
+  const effective = Math.min(gapS, OFFLINE_CAP_HOURS * 3600);
 
-  const earned = incomePerSecond() * Math.min(gapS, OFFLINE_CAP_HOURS * 3600);
+  // Pay out with the current workforce first, then let new residents arrive.
+  const earned = incomePerSecond() * effective;
   state.coins += earned;
-  if (gapS > AWAY_THRESHOLD_S && earned >= 1) pendingOffline += earned;
+  const arrived = tickPopulation(effective);
+
+  if (gapS > AWAY_THRESHOLD_S) {
+    pendingOffline.coins += earned;
+    pendingOffline.residents += arrived.length;
+  } else {
+    arrivals.push(...arrived);
+  }
 
   if (now - lastSave > AUTOSAVE_MS) {
     save();
@@ -32,11 +47,18 @@ export function tickEconomy(): void {
   }
 }
 
-/** Coins earned while away since the last call, or 0. */
-export function takeOfflineEarnings(): number {
-  const amount = Math.floor(pendingOffline);
-  pendingOffline = 0;
-  return amount;
+/** What happened while away since the last call, or null if nothing worth reporting. */
+export function takeOfflineReport(): { coins: number; residents: number } | null {
+  const report = { coins: Math.floor(pendingOffline.coins), residents: pendingOffline.residents };
+  pendingOffline = { coins: 0, residents: 0 };
+  return report.coins > 0 || report.residents > 0 ? report : null;
+}
+
+/** Residents who moved in during play since the last call (for little arrival popups). */
+export function takeArrivals(): Resident[] {
+  const out = arrivals;
+  arrivals = [];
+  return out;
 }
 
 document.addEventListener('visibilitychange', () => {
