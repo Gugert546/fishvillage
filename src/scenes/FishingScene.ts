@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   FISH,
   FISH_DENSITY,
+  FISH_PRICE_BONUS_PER_LEVEL,
   FULL_HOOK_RAMP_SECONDS,
   FULL_HOOK_REEL_MULTIPLIER,
   GAME_HEIGHT,
@@ -17,6 +18,7 @@ import {
 } from '../config';
 import { fishingStats, save, state } from '../state';
 import { tickEconomy } from '../economy';
+import { townLevel } from '../town';
 import { makeTextures } from '../textures';
 import {
   COLORS,
@@ -241,7 +243,7 @@ export class FishingScene extends Phaser.Scene {
     let total = 0;
     for (const f of this.caught) {
       counts.set(f.type, (counts.get(f.type) ?? 0) + 1);
-      total += f.type.value;
+      total += this.priceOf(f.type);
       state.caught[f.type.id] = (state.caught[f.type.id] ?? 0) + 1;
     }
     state.coins += total;
@@ -251,6 +253,11 @@ export class FishingScene extends Phaser.Scene {
   }
 
   // --------------------------------------------------------------- Fish
+
+  /** Sale price including your house's level bonus. */
+  private priceOf(type: FishType): number {
+    return Math.round(type.value * (1 + FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1)));
+  }
 
   private spawnFish(): void {
     for (let seg = 0; seg < WORLD_DEPTH_M; seg += 10) {
@@ -307,7 +314,7 @@ export class FishingScene extends Phaser.Scene {
     this.caught.push(f);
     f.sprite.setDepth(9).setAngle(-90).setFlipX(false);
 
-    const pop = makeText(this, this.hookX, this.hookY - 20, `+$${f.type.value}`, 18).setOrigin(0.5).setDepth(20);
+    const pop = makeText(this, this.hookX, this.hookY - 20, `+$${this.priceOf(f.type)}`, 18).setOrigin(0.5).setDepth(20);
     pop.setColor('#ffe066');
     this.tweens.add({ targets: pop, y: pop.y - 50, alpha: 0, duration: 800, onComplete: () => pop.destroy() });
   }
@@ -420,15 +427,20 @@ export class FishingScene extends Phaser.Scene {
 
   private showResults(counts: Map<FishType, number>, total: number): void {
     const rows = Math.max(1, counts.size);
-    const m = (this.modal = new Modal(this, 200 + rows * 34));
+    const bonus = Math.round(FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1) * 100);
+    const m = (this.modal = new Modal(this, 200 + rows * 34 + (bonus > 0 ? 26 : 0)));
 
     m.text(GAME_WIDTH / 2, m.top + 36, total > 0 ? 'Nice catch!' : 'Nothing this time', 28);
     let y = m.top + 84;
+    if (bonus > 0) {
+      m.text(GAME_WIDTH / 2, y - 12, `Your house: fish sell for +${bonus}%`, 14).setAlpha(0.75);
+      y += 26;
+    }
     if (counts.size === 0) m.text(GAME_WIDTH / 2, y, 'Steer into fish on the way up!', 18).setAlpha(0.8);
     for (const [type, n] of [...counts].sort((a, b) => b[0].value - a[0].value)) {
       m.add(this.add.image(60, y, `fish-${type.id}`).setScale(0.8));
       m.text(95, y, `${type.name} ×${n}`, 18, 0);
-      m.text(GAME_WIDTH - 50, y, `$${type.value * n}`, 18, 1);
+      m.text(GAME_WIDTH - 50, y, `$${this.priceOf(type) * n}`, 18, 1);
       y += 34;
     }
     m.text(GAME_WIDTH / 2, y + 16, `+$${total}`, 32).setColor(COLORS.gold);

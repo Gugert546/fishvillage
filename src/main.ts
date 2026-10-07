@@ -3,12 +3,15 @@ import { GAME_WIDTH, GAME_HEIGHT } from './config';
 import { FishingScene } from './scenes/FishingScene';
 import { TownScene } from './scenes/TownScene';
 import { save, state } from './state';
-import { grantStarterResidents } from './town';
+import { ensurePlayerHouse, grantStarterResidents } from './town';
 
+// House first, so starter cottages for old saves can't take its spot by the dock.
+ensurePlayerHouse();
 grantStarterResidents();
 
-// New players start on the dock; once they've built something, open in town.
-const scenes = state.buildings.length > 0 ? [TownScene, FishingScene] : [FishingScene, TownScene];
+// New players start on the dock; once they've built something of their own, open in town.
+const hasBuilt = state.buildings.some((b) => b.type !== 'playerHouse');
+const scenes = hasBuilt ? [TownScene, FishingScene] : [FishingScene, TownScene];
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,

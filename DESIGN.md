@@ -45,6 +45,20 @@ All passive income is designed and shown **per minute** (a Lv1 Fish Stand worker
 
 Offline earnings accrue while closed, capped (e.g. 4–8 h), cap raised by Harbor/Warehouse.
 
+## Your house & town level
+
+Every game starts with your own house above the dock (movable, not sellable). Its level **is the town level**: upgrading costs coins and needs enough residents, unlocks new buildings, and makes fish sell for +10% per level.
+
+| Level | Cost | Needs | Unlocks |
+|---|---|---|---|
+| 1 | start | – | Cottage, Fish Stand, Tackle Shop, Road, Flower Bed, Tree |
+| 2 | $300 | 2 residents | Bait Shop, Bench |
+| 3 | $1,500 | 6 residents | Apartment, Lamp Post |
+| 4 | $6,000 | 12 residents | Fountain |
+| 5 | $20,000 | 24 residents | (future content) |
+
+Each level also allows **2 more Fish Stands** (2 at level 1), and no building can be upgraded past the town level.
+
 ## Town life (residents, jobs, happiness)
 
 **Houses → residents → jobs → income.** Decorations and roads → happiness → bonuses.

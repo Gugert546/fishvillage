@@ -10,6 +10,9 @@ import {
   TOWN_COLS,
   UPGRADES,
   upgradeCost,
+  FISH_PRICE_BONUS_PER_LEVEL,
+  MAX_TOWN_LEVEL,
+  TOWN_LEVELS,
   type BuildingCategory,
   type BuildingDef,
 } from '../config';
@@ -36,12 +39,17 @@ import {
 } from '../population';
 import { state, type PlacedBuilding } from '../state';
 import { makeTextures } from '../textures';
-import { Villagers, makePerson } from './Villagers';
+import { Villagers, makePerson, makePlayer } from './Villagers';
 import {
   buildCost,
   buyUpgrade,
   canExpand,
+  houseUpgradeBlockers,
+  isUnlocked,
+  levelCap,
+  unlocksAt,
   canPlace,
+  countCap,
   countOwned,
   expand,
   findFreeSpot,
@@ -52,6 +60,7 @@ import {
   sellValue,
   setStaff,
   togglePriority,
+  townLevel,
   townRows,
   upgradeBuilding,
   upgradeLevelCap,
@@ -354,6 +363,22 @@ export class TownScene extends Phaser.Scene {
       for (let wy = eave + 8; wy < ph - doorH - 12; wy += 22) {
         for (let wx = 16; wx < pw - 24; wx += 24) g.fillRect(wx, wy, 14, 12);
       }
+    } else if (def.id === 'playerHouse') {
+      // Lit windows with shutters, and a pennant on the roof.
+      for (const wx of [16, pw - 40]) {
+        g.fillStyle(0x2a6f97);
+        g.fillRect(wx - 4, eave + 12, 4, 22);
+        g.fillRect(wx + 24, eave + 12, 4, 22);
+        g.fillStyle(0xffe8a3);
+        g.fillRect(wx, eave + 12, 24, 22);
+        g.fillStyle(0xfaf3e0);
+        g.fillRect(wx + 11, eave + 12, 2, 22);
+      }
+      g.fillStyle(0x5c3a1e);
+      g.fillRect(pw / 2 - 1, -12, 2, 18);
+      g.fillStyle(0xffd166);
+      g.fillTriangle(pw / 2 + 1, -12, pw / 2 + 15, -7, pw / 2 + 1, -2);
+
     } else if (def.w >= 4) {
       g.fillStyle(0xa8def0);
       g.fillRect(16, eave + 10, 22, 18);
@@ -366,6 +391,7 @@ export class TownScene extends Phaser.Scene {
     g.fillRect(pw / 2 - 7, ph - 6 - doorH, 14, doorH);
 
     const parts: Phaser.GameObjects.GameObject[] = [g];
+    if (def.id === 'playerHouse') parts.push(makePlayer(this).setPosition(pw / 2 + 18, ph - 4));
     if (def.id === 'fishStand') parts.push(this.add.image(pw / 2, eave + 10, 'fish-mackerel').setScale(0.7));
     if (def.id === 'tackleShop') parts.push(this.add.image(pw / 2, eave + 12, 'hook').setScale(1.4));
     if (def.id === 'baitShop') {
@@ -547,6 +573,7 @@ export class TownScene extends Phaser.Scene {
   private chimneyOf(def: BuildingDef): { x: number; y: number } | undefined {
     if (def.id === 'cottage') return { x: def.w * TILE * 0.68 + 3.5, y: 8 };
     if (def.id === 'apartment') return { x: def.w * TILE * 0.74, y: 18 };
+    if (def.id === 'playerHouse') return { x: def.w * TILE * 0.72, y: 16 };
     return undefined;
   }
 
@@ -555,7 +582,8 @@ export class TownScene extends Phaser.Scene {
     const occupied = new Set(state.residents.map((r) => r.home));
     for (const b of state.buildings) {
       const chimney = this.chimneyOf(defOf(b));
-      if (!chimney || !occupied.has(b.id) || !this.isOnScreen(b) || Math.random() < 0.4) continue;
+      const lived = occupied.has(b.id) || b.type === 'playerHouse';
+      if (!chimney || !lived || !this.isOnScreen(b) || Math.random() < 0.4) continue;
       if (this.ghost?.moving === b) continue;
       const pos = tileToWorld(b.col, b.row, defOf(b).h);
       const puff = this.add.circle(pos.x + chimney.x, pos.y + chimney.y - 2, 3.5, 0xeeeeee, 0.65).setDepth(30);
@@ -987,24 +1015,35 @@ export class TownScene extends Phaser.Scene {
     for (const def of defs) {
       const owned = countOwned(def.id);
       const cost = buildCost(def);
-      const maxed = owned >= def.maxCount;
+      const cap = countCap(def);
+      const maxed = owned >= cap;
+      // At the limit for this town level, but more are allowed after a house upgrade.
+      const levelLimited = maxed && cap < def.maxCount;
       const preview = this.drawBuilding(def).setScale(Math.min(1.4, 56 / (Math.max(def.w, def.h) * TILE)));
       preview.setPosition(36, y - 28);
       m.add(preview);
       m.text(110, y - 34, def.name, 18, 0);
       m.text(110, y - 12, this.buildSummary(def), 13, 0).setColor(COLORS.gold);
       m.text(110, y + 2, def.description, 13, 0).setOrigin(0, 0).setWordWrapWidth(190).setAlpha(0.8);
-      if (def.maxCount > 1 && def.category !== 'road' && def.category !== 'decor') {
-        m.text(110, y + 38, `Owned ${owned}/${def.maxCount}`, 12, 0).setAlpha(0.6);
+      if (levelLimited) {
+        m.text(110, y + 38, `Owned ${owned}/${cap} · more at house Lv ${townLevel() + 1}`, 12, 0).setColor('#ffb4a2');
+      } else if (def.maxCount > 1 && def.category !== 'road' && def.category !== 'decor') {
+        m.text(110, y + 38, `Owned ${owned}/${cap}`, 12, 0).setAlpha(0.6);
+      }
+      const unlocked = isUnlocked(def);
+      if (!unlocked) {
+        preview.setAlpha(0.35);
+        m.text(110, y + 38, `Unlocks at house level ${def.unlockLevel}`, 12, 0).setColor('#ffb4a2');
       }
       const affordable = state.coins >= cost;
-      const btn = makeButton(this, GAME_WIDTH - 80, y, 100, 46, maxed ? 'Built' : `$${formatCoins(cost)}`, () => {
-        if (maxed || !affordable) return;
+      const label = !unlocked ? `Lv ${def.unlockLevel}` : maxed ? (def.maxCount === 1 ? 'Built' : 'Max') : `$${formatCoins(cost)}`;
+      const btn = makeButton(this, GAME_WIDTH - 80, y, 100, 46, label, () => {
+        if (!unlocked || maxed || !affordable) return;
         this.closeModal();
         if (def.category === 'road') this.enterRoadMode();
         else this.enterBuildMode(def);
       }, COLORS.buy, 18);
-      btn.setEnabledLook(!maxed && affordable, COLORS.buy);
+      btn.setEnabledLook(unlocked && !maxed && affordable, COLORS.buy);
       m.add(btn);
       y += rowH;
     }
@@ -1024,6 +1063,10 @@ export class TownScene extends Phaser.Scene {
   }
 
   private openBuildingPanel(b: PlacedBuilding): void {
+    if (b.type === 'playerHouse') {
+      this.openHousePanel(b);
+      return;
+    }
     this.closeModal();
     this.panelFor = b;
     const def = defOf(b);
@@ -1122,14 +1165,18 @@ export class TownScene extends Phaser.Scene {
     // Level upgrade
     if (upgradable) {
       const maxed = b.level >= def.maxLevel;
+      // Buildings can't outgrow the town: the next level waits for a house upgrade.
+      const waiting = !maxed && b.level >= levelCap(b);
       const cost = def.upgradeCost(b.level);
       m.text(40, y - 10, maxed ? 'Fully upgraded' : `Upgrade to Lv ${b.level + 1}`, 18, 0);
       if (!maxed) {
-        m.text(40, y + 14, this.upgradeGain(b), 14, 0).setAlpha(0.75);
-        const btn = makeButton(this, right, y, 110, 46, `$${formatCoins(cost)}`, () => {
+        if (waiting) m.text(40, y + 14, `Needs your house at Lv ${b.level + 1}`, 14, 0).setColor('#ffb4a2');
+        else m.text(40, y + 14, this.upgradeGain(b), 14, 0).setAlpha(0.75);
+        const label = waiting ? `House ${b.level + 1}` : `$${formatCoins(cost)}`;
+        const btn = makeButton(this, right, y, 110, 46, label, () => {
           if (upgradeBuilding(b)) reopen();
-        }, COLORS.buy, 18);
-        btn.setEnabledLook(state.coins >= cost, COLORS.buy);
+        }, COLORS.buy, waiting ? 16 : 18);
+        btn.setEnabledLook(!waiting && state.coins >= cost, COLORS.buy);
         m.add(btn);
       }
       y += 70;
@@ -1163,6 +1210,64 @@ export class TownScene extends Phaser.Scene {
         this.enterBuildMode(def, b);
       }, COLORS.primary, 20),
       makeButton(this, GAME_WIDTH * 0.7, actionsY, 160, 44, `Sell $${formatCoins(sellValue(b))}`, () => this.confirmSell(b), COLORS.danger, 20),
+      makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral),
+    );
+  }
+
+  /** Your house: the town level, what the next level needs, and what it unlocks. */
+  private openHousePanel(b: PlacedBuilding): void {
+    this.closeModal();
+    this.panelFor = b;
+    const def = defOf(b);
+    const level = b.level;
+    const next = TOWN_LEVELS[level + 1];
+    const unlocks = next ? unlocksAt(level + 1) : [];
+    const height = next ? 424 : 260;
+    const m = (this.modal = new Modal(this, height));
+    const reopen = () => this.openHousePanel(b);
+
+    m.text(GAME_WIDTH / 2, m.top + 32, `Your House  ·  Lv ${level}`, 24);
+    m.text(GAME_WIDTH / 2, m.top + 64, def.description, 14).setAlpha(0.8).setAlign('center').setWordWrapWidth(GAME_WIDTH - 90);
+    const bonus = Math.round(FISH_PRICE_BONUS_PER_LEVEL * (level - 1) * 100);
+    m.text(40, m.top + 104, `Town level ${level} of ${MAX_TOWN_LEVEL}`, 18, 0);
+    m.text(40, m.top + 130, bonus > 0 ? `Fish sell for +${bonus}%` : 'Each level makes fish sell for +10%', 14, 0)
+      .setColor(COLORS.gold);
+
+    if (next) {
+      let y = m.top + 176;
+      m.text(40, y, `Upgrade to Lv ${level + 1}`, 18, 0);
+      y += 30;
+      const residentsOk = state.residents.length >= next.residents;
+      m.text(40, y, `${residentsOk ? '✓' : '✗'} ${state.residents.length}/${next.residents} residents`, 15, 0).setColor(
+        residentsOk ? '#8ee88e' : '#ff8a8a',
+      );
+      y += 26;
+      const perks = unlocks.map((d) => d.name);
+      for (const d of BUILDINGS) {
+        if (d.countPerLevel && d.countPerLevel * level < d.maxCount) perks.push(`+${d.countPerLevel} ${d.name}s`);
+      }
+      perks.push(`building upgrades to Lv ${level + 1}`);
+      m.text(40, y, `Unlocks: ${perks.join(', ')}`, 14, 0).setOrigin(0, 0).setAlpha(0.85).setWordWrapWidth(GAME_WIDTH - 90);
+
+      const ready = houseUpgradeBlockers().length === 0;
+      const btn = makeButton(this, GAME_WIDTH - 90, m.top + 186, 110, 46, `$${formatCoins(next.cost)}`, () => {
+        if (upgradeBuilding(b)) {
+          this.refreshBuildingViews();
+          this.floatText(b, `Town level ${b.level}!`, 20, COLORS.gold);
+          reopen();
+        }
+      }, COLORS.buy, 18);
+      btn.setEnabledLook(ready && state.coins >= next.cost, COLORS.buy);
+      m.add(btn);
+    } else {
+      m.text(GAME_WIDTH / 2, m.top + 176, 'Fully upgraded!', 18).setColor('#8ee88e');
+    }
+
+    m.add(
+      makeButton(this, GAME_WIDTH / 2, m.top + m.height - 92, 160, 44, 'Move', () => {
+        this.closeModal();
+        this.enterBuildMode(def, b);
+      }, COLORS.primary, 20),
       makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral),
     );
   }

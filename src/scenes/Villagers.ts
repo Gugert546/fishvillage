@@ -36,6 +36,23 @@ export function makePerson(scene: Phaser.Scene, id: number): Phaser.GameObjects.
   return scene.add.container(0, 0, [g]);
 }
 
+/** You, the fisher from the dock: orange jacket and red cap. Feet at (0, 0). */
+export function makePlayer(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const g = scene.add.graphics();
+  g.fillStyle(0x000000, 0.2);
+  g.fillEllipse(0, 0, 11, 4);
+  g.fillStyle(0x2f4858);
+  g.fillRect(-3, -7, 2.5, 7);
+  g.fillRect(0.5, -7, 2.5, 7);
+  g.fillStyle(0xe0a030);
+  g.fillRoundedRect(-4.5, -15, 9, 9, 2);
+  g.fillStyle(0xf2c9a0);
+  g.fillCircle(0, -18, 3.8);
+  g.fillStyle(0xc0392b);
+  g.fillRect(-4.5, -23, 9, 3);
+  return scene.add.container(0, 0, [g]);
+}
+
 export function tileCenter(t: Tile): { x: number; y: number } {
   return { x: GRID_X + t.col * TILE + TILE / 2, y: -t.row * TILE - TILE / 2 };
 }

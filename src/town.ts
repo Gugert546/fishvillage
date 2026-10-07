@@ -2,7 +2,10 @@
 
 import {
   BUILDING_BY_ID,
+  BUILDINGS,
   MAX_ROWS,
+  PLAYER_HOUSE_SPOT,
+  TOWN_LEVELS,
   ROWS_PER_EXPANSION,
   SELL_REFUND,
   START_ROWS,
@@ -41,6 +44,17 @@ export function countOwned(type: BuildingId): number {
   return state.buildings.filter((b) => b.type === type).length;
 }
 
+/** How many of a building you may own right now, given the town level. */
+export function countCap(def: BuildingDef): number {
+  return def.countPerLevel ? Math.min(def.maxCount, def.countPerLevel * townLevel()) : def.maxCount;
+}
+
+/** Highest level a building can be upgraded to right now: its own max, and never past the town level. */
+export function levelCap(b: PlacedBuilding): number {
+  const def = BUILDING_BY_ID[b.type];
+  return b.type === 'playerHouse' ? def.maxLevel : Math.min(def.maxLevel, townLevel());
+}
+
 export function buildCost(def: BuildingDef): number {
   return Math.round(def.baseCost * Math.pow(def.costGrowth, countOwned(def.id)));
 }
@@ -56,7 +70,9 @@ export function canPlace(def: BuildingDef, col: number, row: number, ignore?: Pl
 
 export function placeBuilding(def: BuildingDef, col: number, row: number): PlacedBuilding | undefined {
   const cost = buildCost(def);
-  if (state.coins < cost || countOwned(def.id) >= def.maxCount || !canPlace(def, col, row)) return undefined;
+  if (!isUnlocked(def) || state.coins < cost || countOwned(def.id) >= countCap(def) || !canPlace(def, col, row)) {
+    return undefined;
+  }
   state.coins -= cost;
   const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost };
   state.buildings.push(building);
@@ -68,7 +84,8 @@ export function placeBuilding(def: BuildingDef, col: number, row: number): Place
 export function upgradeBuilding(b: PlacedBuilding): boolean {
   const def = BUILDING_BY_ID[b.type];
   const cost = def.upgradeCost(b.level);
-  if (b.level >= def.maxLevel || state.coins < cost) return false;
+  if (b.level >= levelCap(b) || state.coins < cost) return false;
+  if (b.type === 'playerHouse' && houseUpgradeBlockers().length > 0) return false;
   state.coins -= cost;
   b.spent = totalSpent(b) + cost;
   b.level++;
@@ -90,7 +107,12 @@ export function sellValue(b: PlacedBuilding): number {
   return Math.floor(totalSpent(b) * (BUILDING_BY_ID[b.type].refund ?? SELL_REFUND));
 }
 
+export function canSell(b: PlacedBuilding): boolean {
+  return b.type !== 'playerHouse';
+}
+
 export function sellBuilding(b: PlacedBuilding): number {
+  if (!canSell(b)) return 0;
   const value = sellValue(b);
   evictFrom(b);
   state.buildings = state.buildings.filter((other) => other !== b);
@@ -174,5 +196,50 @@ export function grantStarterResidents(): void {
   }
   // Fill the new homes right away instead of waiting for move-ins.
   tickPopulation(1e9);
+  save();
+}
+
+// ---------------------------------------------------------------- Town level
+
+export function playerHouse(): PlacedBuilding | undefined {
+  return state.buildings.find((b) => b.type === 'playerHouse');
+}
+
+/** The town level is your house's level. */
+export function townLevel(): number {
+  return playerHouse()?.level ?? 1;
+}
+
+export function isUnlocked(def: BuildingDef): boolean {
+  return townLevel() >= (def.unlockLevel ?? 1);
+}
+
+/** Buildings that the next house level would unlock. */
+export function unlocksAt(level: number): BuildingDef[] {
+  return BUILDINGS.filter((d) => (d.unlockLevel ?? 1) === level && d.category !== 'player');
+}
+
+/** Why the house can't be upgraded yet, besides coins (empty when it can). */
+export function houseUpgradeBlockers(): string[] {
+  const next = TOWN_LEVELS[townLevel() + 1];
+  if (!next) return [];
+  const blockers: string[] = [];
+  if (state.residents.length < next.residents) blockers.push(`${next.residents} residents`);
+  return blockers;
+}
+
+/**
+ * Every town has your house. New games get it above the dock; older saves get it wherever it
+ * fits, at a level that already covers everything they've built.
+ */
+export function ensurePlayerHouse(): void {
+  if (playerHouse()) return;
+  const def = BUILDING_BY_ID.playerHouse;
+  const spot = canPlace(def, PLAYER_HOUSE_SPOT.col, PLAYER_HOUSE_SPOT.row)
+    ? PLAYER_HOUSE_SPOT
+    : findFreeSpot(def, PLAYER_HOUSE_SPOT.row);
+  if (!spot) return; // No room at all; the town just behaves as level 1 until there is.
+  const level = state.buildings.reduce((max, b) => Math.max(max, BUILDING_BY_ID[b.type].unlockLevel ?? 1), 1);
+  state.buildings.push({ id: state.nextBuildingId++, type: 'playerHouse', ...spot, level, spent: 0 });
   save();
 }

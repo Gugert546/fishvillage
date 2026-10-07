@@ -215,12 +215,13 @@ export const RESIDENT_NAMES = [
   'Ada', 'Bo', 'Cora', 'Dag', 'Elin', 'Finn', 'Greta', 'Hugo', 'Ida', 'Jon', 'Kari', 'Leif', 'Maja', 'Nils',
   'Olga', 'Per', 'Ragna', 'Siv', 'Tor', 'Ulla', 'Vera', 'Wilhelm', 'Yngve', 'Åse', 'Arne', 'Brit', 'Edvin',
   'Frida', 'Gunnar', 'Hedda', 'Ivar', 'Johanna', 'Knut', 'Liv', 'Magnus', 'Nora', 'Oskar', 'Petra', 'Sigrid',
-  'Tove', 'Vidar', 'Astrid', 'Bjørn', 'Dina', 'Erik', 'Ingrid', 'Lars', 'Mette', 'Sander', 'Thea',
+  'Tove', 'Vidar', 'Astrid', 'Bjørn', 'Dina', 'Erik', 'Ingrid', 'Lars', 'Mette', 'Sander', 'Thea','Ragnhild','Audun'
 ];
 
 // ---------------------------------------------------------------- Buildings
 
 export type BuildingId =
+  | 'playerHouse'
   | 'fishStand'
   | 'tackleShop'
   | 'baitShop'
@@ -232,7 +233,7 @@ export type BuildingId =
   | 'bench'
   | 'lampPost'
   | 'fountain';
-export type BuildingCategory = 'work' | 'housing' | 'decor' | 'road';
+export type BuildingCategory = 'player' | 'work' | 'housing' | 'decor' | 'road';
 
 export interface BuildingDef {
   id: BuildingId;
@@ -261,6 +262,10 @@ export interface BuildingDef {
   happiness?: { amount: number; radius: number };
   /** Share of spent coins returned on sell; defaults to SELL_REFUND. */
   refund?: number;
+  /** Player house level needed before this can be built (default 1). */
+  unlockLevel?: number;
+  /** If set, you can own this many per town level (still capped by maxCount). */
+  countPerLevel?: number;
 }
 
 /** One extra job slot every second level: 1, 1, 2, 2, 3… */
@@ -295,6 +300,7 @@ export const BUILDINGS: BuildingDef[] = [
     baseCost: 400,
     costGrowth: 1.4,
     maxCount: 12,
+    unlockLevel: 3,
     maxLevel: 5,
     upgradeCost: (l) => Math.round(350 * Math.pow(1.9, l - 1)),
     housing: (l) => 4 + 2 * l,
@@ -311,6 +317,7 @@ export const BUILDINGS: BuildingDef[] = [
     baseCost: 50,
     costGrowth: 1.5,
     maxCount: 12,
+    countPerLevel: 2,
     maxLevel: 10,
     upgradeCost: (l) => Math.round(40 * Math.pow(1.7, l)),
     jobs: slotsEveryOtherLevel,
@@ -346,6 +353,7 @@ export const BUILDINGS: BuildingDef[] = [
     costGrowth: 1,
     maxCount: 1,
     maxLevel: 3,
+    unlockLevel: 2,
     upgradeCost: (l) => Math.round(400 * Math.pow(3, l - 1)),
     jobs: slotsEveryOtherLevel,
     incomePerWorker: (l) => 2.5 * l,
@@ -360,6 +368,7 @@ const decor = (
   amount: number,
   radius: number,
   size = 1,
+  unlockLevel = 1,
 ): BuildingDef => ({
   id,
   name,
@@ -375,6 +384,7 @@ const decor = (
   maxLevel: 1,
   upgradeCost: () => 0,
   happiness: { amount, radius },
+  unlockLevel,
 });
 
 BUILDINGS.push(
@@ -396,9 +406,53 @@ BUILDINGS.push(
   },
   decor('flowerBed', 'Flower Bed', 'A splash of colour.', 15, 6, 2),
   decor('tree', 'Tree', 'Shade and birdsong.', 25, 5, 3),
-  decor('bench', 'Bench', 'A spot to sit and chat.', 30, 8, 2),
-  decor('lampPost', 'Lamp Post', 'Cosy light for evening walks.', 40, 6, 3),
-  decor('fountain', 'Fountain', 'The pride of the town square.', 250, 15, 4, 2),
+  decor('bench', 'Bench', 'A spot to sit and chat.', 30, 8, 2, 1, 2),
+  decor('lampPost', 'Lamp Post', 'Cosy light for evening walks.', 40, 6, 3, 1, 3),
+  decor('fountain', 'Fountain', 'The pride of the town square.', 250, 15, 4, 2, 4),
 );
+
+// ------------------------------------------------------------- Player house
+// Your own home by the dock. Its level is the town level: it gates which buildings unlock,
+// and each level makes fish sell for a bit more.
+
+export interface TownLevel {
+  /** Coins to upgrade the house to this level (unused for level 1). */
+  cost: number;
+  /** Residents the town needs before upgrading to this level. */
+  residents: number;
+}
+
+/** Index = level; index 0 is unused so TOWN_LEVELS[level] reads naturally. */
+export const TOWN_LEVELS: TownLevel[] = [
+  { cost: 0, residents: 0 },
+  { cost: 0, residents: 0 },
+  { cost: 300, residents: 2 },
+  { cost: 1_500, residents: 6 },
+  { cost: 6_000, residents: 12 },
+  { cost: 20_000, residents: 24 },
+];
+export const MAX_TOWN_LEVEL = TOWN_LEVELS.length - 1;
+
+/** Extra fish sale price per house level above 1. */
+export const FISH_PRICE_BONUS_PER_LEVEL = 0.1;
+
+/** Where a new game puts your house: just above the dock. */
+export const PLAYER_HOUSE_SPOT = { col: 5, row: 0 };
+
+BUILDINGS.unshift({
+  id: 'playerHouse',
+  name: 'Your House',
+  description: 'Home sweet home. Upgrade it to unlock new buildings.',
+  category: 'player',
+  w: 4,
+  h: 4,
+  wall: 0xfaf3e0,
+  roof: 0xc1121f,
+  baseCost: 0,
+  costGrowth: 1,
+  maxCount: 1,
+  maxLevel: MAX_TOWN_LEVEL,
+  upgradeCost: (l) => TOWN_LEVELS[l + 1]?.cost ?? 0,
+});
 
 export const BUILDING_BY_ID = Object.fromEntries(BUILDINGS.map((b) => [b.id, b])) as Record<BuildingId, BuildingDef>;
