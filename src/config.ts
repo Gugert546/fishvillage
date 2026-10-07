@@ -86,6 +86,11 @@ export const BASE_STATS: FishingStats = {
   ascentSpeed: 9,
 };
 
+/** Once the hook is full there's nothing left to do, so it reels in this many times faster. */
+export const FULL_HOOK_REEL_MULTIPLIER = 4;
+/** Seconds to ramp up to that speed, so the speed-up reads as "reeling in" rather than a jump. */
+export const FULL_HOOK_RAMP_SECONDS = 0.5;
+
 /** How fast the hook follows your finger sideways, px/s. */
 export const HOOK_STEER_SPEED = 1100;
 export const HOOK_RADIUS = 9;

@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import {
   FISH,
   FISH_DENSITY,
+  FULL_HOOK_RAMP_SECONDS,
+  FULL_HOOK_REEL_MULTIPLIER,
   GAME_HEIGHT,
   GAME_WIDTH,
   HOOK_RADIUS,
@@ -57,6 +59,8 @@ export class FishingScene extends Phaser.Scene {
   private hookY = HOOK_REST.y;
   private targetX: number | null = null;
   private shieldsLeft = 0;
+  /** Ascent speed multiplier; climbs toward FULL_HOOK_REEL_MULTIPLIER once the hook is full. */
+  private reelBoost = 1;
   private invulnerableUntil = 0;
 
   private line!: Phaser.GameObjects.Graphics;
@@ -226,6 +230,7 @@ export class FishingScene extends Phaser.Scene {
 
   private startAscent(): void {
     this.phase = 'ascending';
+    this.reelBoost = 1;
   }
 
   private finishCast(): void {
@@ -340,7 +345,11 @@ export class FishingScene extends Phaser.Scene {
         this.startAscent();
       }
     } else if (this.phase === 'ascending') {
-      this.hookY -= this.stats.ascentSpeed * PX_PER_M * dt;
+      if (this.caught.length >= this.stats.capacity) {
+        const rate = (FULL_HOOK_REEL_MULTIPLIER - 1) / FULL_HOOK_RAMP_SECONDS;
+        this.reelBoost = Math.min(FULL_HOOK_REEL_MULTIPLIER, this.reelBoost + rate * dt);
+      }
+      this.hookY -= this.stats.ascentSpeed * this.reelBoost * PX_PER_M * dt;
       if (this.caught.length < this.stats.capacity) {
         const f = this.fishTouchingHook();
         if (f) this.catchFish(f);
@@ -371,7 +380,9 @@ export class FishingScene extends Phaser.Scene {
     let target = 0;
     if (this.phase === 'descending') target = this.hookY - GAME_HEIGHT * 0.3;
     else if (this.phase === 'ascending') target = this.hookY - GAME_HEIGHT * 0.65;
-    cam.scrollY += (target - cam.scrollY) * Math.min(1, dt * 8);
+    // Follow tighter while reeling in fast so the hook doesn't run off the top of the screen.
+    const follow = this.reelBoost > 1 ? 14 : 8;
+    cam.scrollY += (target - cam.scrollY) * Math.min(1, dt * follow);
   }
 
   private drawLineAndHook(time: number): void {
