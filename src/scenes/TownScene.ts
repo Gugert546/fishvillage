@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  BAITS,
   BUILDINGS,
   BUILDING_BY_ID,
   GAME_HEIGHT,
@@ -13,13 +14,14 @@ import {
   FISH_PRICE_BONUS_PER_LEVEL,
   MAX_TOWN_LEVEL,
   TOWN_LEVELS,
-  type BuildingCategory,
   type BuildingDef,
 } from '../config';
 import { takeArrivals, tickEconomy } from '../economy';
 import {
   averageHappiness,
   decorBonus,
+  filletBoost,
+  tileGap,
   happinessByResident,
   homeMood,
   incomeMultiplier,
@@ -27,8 +29,11 @@ import {
   workplaceIncome,
 } from '../happiness';
 import {
+  chooseJob,
   defOf,
   housingOf,
+  isWorkplace,
+  pinnedWorkers,
   jobSlots,
   residentsOf,
   shopOpen,
@@ -37,11 +42,14 @@ import {
   workerCounts,
   workersOf,
 } from '../population';
-import { state, type PlacedBuilding } from '../state';
+import { state, type PlacedBuilding, type Resident } from '../state';
 import { makeTextures } from '../textures';
 import { Villagers, makePerson, makePlayer } from './Villagers';
+import { hookBonus, offlineCapHours, sonarRange } from '../services';
 import {
+  baitUnlocked,
   buildCost,
+  buyBait,
   buyUpgrade,
   canExpand,
   houseUpgradeBlockers,
@@ -74,6 +82,7 @@ import {
   formatCoins,
   formatRate as fmtRate,
   makeButton,
+  makeListRow,
   makeText,
   openSettings,
   showOfflineEarnings,
@@ -96,12 +105,14 @@ const SMOKE_MS = 700;
 const AUTOSCROLL_EDGE = 110;
 const AUTOSCROLL_SPEED = 420;
 
-type BuildTab = 'homes' | 'work' | 'decor';
-const TAB_CATEGORIES: Record<BuildTab, BuildingCategory[]> = {
-  homes: ['housing'],
-  work: ['work'],
-  decor: ['road', 'decor'],
-};
+type BuildTab = 'homes' | 'shops' | 'services' | 'decor';
+
+function tabOf(def: BuildingDef): BuildTab | undefined {
+  if (def.category === 'housing') return 'homes';
+  if (def.category === 'road' || def.category === 'decor') return 'decor';
+  if (def.category === 'work') return def.menuTab ?? 'shops';
+  return undefined;
+}
 
 interface Paint {
   /** Erasing when the stroke started on a road, painting otherwise. */
@@ -210,7 +221,12 @@ export class TownScene extends Phaser.Scene {
     this.rebuildGround();
     this.refreshBuildingViews();
 
-    this.topBar = new TopBar(this, true, () => this.openSettingsMenu());
+    this.topBar = new TopBar(
+      this,
+      true,
+      () => this.openSettingsMenu(),
+      () => this.openResidents(),
+    );
     this.createBottomBars();
     this.setupInput();
 
@@ -339,6 +355,7 @@ export class TownScene extends Phaser.Scene {
 
   private drawBuilding(def: BuildingDef, status?: ViewStatus): Phaser.GameObjects.Container {
     if (def.category === 'decor' || def.category === 'road') return this.decorView(def);
+    if (def.id === 'lighthouse') return this.lighthouseView(def, status);
     const pw = def.w * TILE;
     const ph = def.h * TILE;
     const eave = ph * 0.42;
@@ -379,6 +396,33 @@ export class TownScene extends Phaser.Scene {
       g.fillStyle(0xffd166);
       g.fillTriangle(pw / 2 + 1, -12, pw / 2 + 15, -7, pw / 2 + 1, -2);
 
+    } else if (def.id === 'warehouse') {
+      // Wide barn doors and a stack of crates.
+      g.fillStyle(0x6b4f3a);
+      g.fillRect(pw / 2 - 18, ph - 30, 36, 24);
+      g.lineStyle(2, 0x4a3420);
+      g.lineBetween(pw / 2, ph - 30, pw / 2, ph - 6);
+      g.lineBetween(pw / 2 - 18, ph - 30, pw / 2 + 18, ph - 6);
+      g.fillStyle(0xd4a373);
+      g.fillRect(10, ph - 20, 14, 14);
+      g.fillRect(26, ph - 20, 14, 14);
+      g.fillRect(18, ph - 33, 14, 13);
+    } else if (def.id === 'tavern') {
+      // Warm windows and a hanging mug sign.
+      g.fillStyle(0xffb703);
+      g.fillRect(12, ph - 26, 16, 14);
+      g.fillRect(pw - 28, ph - 26, 16, 14);
+      g.fillStyle(0x6b4f3a);
+      g.fillRect(pw / 2 + 12, eave + 2, 14, 12);
+      g.fillStyle(0xffd166);
+      g.fillRect(pw / 2 + 15, eave + 4, 7, 8);
+    } else if (def.id === 'netMaker') {
+      // A net hung out to dry on the wall.
+      g.lineStyle(1, 0x2b2d42, 0.8);
+      for (let x = 10; x <= 42; x += 6) g.lineBetween(x, ph - 30, x + 6, ph - 8);
+      for (let x = 16; x <= 48; x += 6) g.lineBetween(x, ph - 30, x - 6, ph - 8);
+      g.fillStyle(0xa8def0);
+      g.fillRect(pw - 36, ph - 28, 20, 14);
     } else if (def.w >= 4) {
       g.fillStyle(0xa8def0);
       g.fillRect(16, eave + 10, 22, 18);
@@ -393,6 +437,15 @@ export class TownScene extends Phaser.Scene {
     const parts: Phaser.GameObjects.GameObject[] = [g];
     if (def.id === 'playerHouse') parts.push(makePlayer(this).setPosition(pw / 2 + 18, ph - 4));
     if (def.id === 'fishStand') parts.push(this.add.image(pw / 2, eave + 10, 'fish-mackerel').setScale(0.7));
+    if (def.id === 'filletHouse') {
+      // A salmon on the sign with a little knife beside it.
+      const knife = this.add.graphics();
+      knife.fillStyle(0xdee2e6);
+      knife.fillTriangle(pw / 2 + 20, eave - 2, pw / 2 + 34, eave - 6, pw / 2 + 34, eave + 1);
+      knife.fillStyle(0x5c3a1e);
+      knife.fillRect(pw / 2 + 34, eave - 6, 8, 5);
+      parts.push(this.add.image(pw / 2 - 6, eave - 4, 'fish-salmon').setScale(0.55), knife);
+    }
     if (def.id === 'tackleShop') parts.push(this.add.image(pw / 2, eave + 12, 'hook').setScale(1.4));
     if (def.id === 'baitShop') {
       const worm = this.add.graphics();
@@ -418,6 +471,53 @@ export class TownScene extends Phaser.Scene {
         // "Help wanted": a workplace with nobody working there
         const pip = this.add.circle(10, 10, 9, 0xe63946).setStrokeStyle(2, 0xffffff);
         const mark = makeText(this, 10, 10, '!', 13).setOrigin(0.5);
+        this.tweens.add({ targets: [pip, mark], scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
+        parts.push(pip, mark);
+      }
+    }
+    return this.add.container(0, 0, parts);
+  }
+
+  /** A striped tower with a lamp room whose beam sweeps while keepers are on duty. */
+  private lighthouseView(def: BuildingDef, status?: ViewStatus): Phaser.GameObjects.Container {
+    const pw = def.w * TILE;
+    const ph = def.h * TILE;
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.18);
+    g.fillEllipse(pw / 2 + 3, ph - 4, pw - 6, 12);
+    // Tapered tower in red and white bands
+    const top = 30;
+    const band = (ph - top) / 5;
+    for (let i = 0; i < 5; i++) {
+      const y0 = top + i * band;
+      const inset = 14 - (i * 6) / 5;
+      g.fillStyle(i % 2 === 0 ? def.roof : def.wall);
+      g.fillRect(inset, y0, pw - inset * 2, band + 1);
+    }
+    g.fillStyle(0x5c3a1e);
+    g.fillRect(pw / 2 - 5, ph - 18, 10, 14);
+    // Lamp room and cap
+    g.fillStyle(0x343a40);
+    g.fillRect(14, top - 4, pw - 28, 4);
+    g.fillStyle(0xffe066);
+    g.fillRect(18, top - 18, pw - 36, 14);
+    g.fillStyle(def.roof);
+    g.fillTriangle(14, top - 18, pw / 2, top - 32, pw - 14, top - 18);
+
+    const parts: Phaser.GameObjects.GameObject[] = [g];
+    if (status?.keeper !== undefined) {
+      const beam = this.add.triangle(pw / 2, top - 11, 0, 0, 70, -10, 70, 10, 0xfff3b0, 0.35).setOrigin(0, 0.5);
+      this.tweens.add({ targets: beam, scaleX: -1, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+      parts.push(beam);
+    }
+    if (status) {
+      if (def.maxLevel > 1) {
+        parts.push(this.add.circle(pw - 6, top + 4, 10, 0x1d3557).setStrokeStyle(2, 0xffffff));
+        parts.push(makeText(this, pw - 6, top + 4, `${status.level}`, 12).setOrigin(0.5));
+      }
+      if (status.unstaffed) {
+        const pip = this.add.circle(6, top + 4, 9, 0xe63946).setStrokeStyle(2, 0xffffff);
+        const mark = makeText(this, 6, top + 4, '!', 13).setOrigin(0.5);
         this.tweens.add({ targets: [pip, mark], scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
         parts.push(pip, mark);
       }
@@ -839,7 +939,9 @@ export class TownScene extends Phaser.Scene {
       this.rangeLabels.push(t);
     };
 
-    const effect = g.def.happiness;
+    // Decorations and Taverns both cheer up homes in a square around them.
+    const tavern = g.def.moodPerWorker;
+    const effect = g.def.happiness ?? (tavern && { amount: tavern.amount(g.moving?.level ?? 1), radius: tavern.radius });
     if (effect) {
       const r = effect.radius;
       const c0 = Math.max(0, g.col - r);
@@ -851,8 +953,9 @@ export class TownScene extends Phaser.Scene {
       this.rangeGfx.lineStyle(2, 0xffe066, 0.7).strokeRect(tl.x, tl.y, (c1 - c0) * TILE, (r1 - r0) * TILE);
       for (const home of state.buildings) {
         if (home === g.moving || !defOf(home).housing) continue;
-        const bonus = decorBonus(probe, home);
-        if (bonus > 0) label(home, `+${bonus}`, COLORS.gold);
+        const inRange = tileGap(probe, home) <= r;
+        if (tavern && inRange) label(home, `+${effect.amount}/worker`, COLORS.gold);
+        else if (!tavern && inRange) label(home, `+${decorBonus(probe, home)}`, COLORS.gold);
       }
     }
     if (g.def.housing) {
@@ -982,10 +1085,117 @@ export class TownScene extends Phaser.Scene {
 
   // -------------------------------------------------------------- Panels
 
-  private openSettingsMenu(): void {
+  // ------------------------------------------------------------ Residents
+
+  /** "Fish Stand", or "Fish Stand #2" when there's more than one. */
+  private buildingLabel(b: PlacedBuilding): string {
+    const same = state.buildings.filter((x) => x.type === b.type).sort((a, z) => a.id - z.id);
+    const def = defOf(b);
+    return same.length > 1 ? `${def.name} #${same.indexOf(b) + 1}` : def.name;
+  }
+
+  private leaveModes(): void {
     if (this.ghost) this.exitBuildMode();
     if (this.roadMode) this.exitRoadMode();
     this.closeModal();
+  }
+
+  /** Paged list layout shared by the residents list and the job picker. */
+  private pagedModal(title: string, subtitle: string, count: number, rowH: number, page: number) {
+    const height = Math.min(GAME_HEIGHT - 110, 780);
+    const perPage = Math.max(1, Math.floor((height - 230) / rowH));
+    const pages = Math.max(1, Math.ceil(count / perPage));
+    const p = Math.min(page, pages - 1);
+    const m = (this.modal = new Modal(this, height));
+    m.text(GAME_WIDTH / 2, m.top + 30, title, 26);
+    m.text(GAME_WIDTH / 2, m.top + 62, subtitle, 14).setAlpha(0.8);
+    return { m, from: p * perPage, to: Math.min(count, (p + 1) * perPage), page: p, pages, firstY: m.top + 100 + rowH / 2 };
+  }
+
+  private pageControls(m: Modal, page: number, pages: number, go: (p: number) => void, onClose: () => void, closeLabel = 'Close'): void {
+    const y = m.top + m.height - 92;
+    if (pages > 1) {
+      const prev = makeButton(this, GAME_WIDTH * 0.22, y, 110, 42, '‹ Prev', () => page > 0 && go(page - 1), COLORS.neutral, 17);
+      const next = makeButton(this, GAME_WIDTH * 0.78, y, 110, 42, 'Next ›', () => page < pages - 1 && go(page + 1), COLORS.neutral, 17);
+      prev.setEnabledLook(page > 0, COLORS.neutral);
+      next.setEnabledLook(page < pages - 1, COLORS.neutral);
+      m.add(prev, next);
+      m.text(GAME_WIDTH / 2, y, `${page + 1} / ${pages}`, 16).setAlpha(0.8);
+    }
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, closeLabel, onClose, COLORS.neutral));
+  }
+
+  /** Everyone in town: name, job and mood. Tap someone to choose where they work. */
+  private openResidents(page = 0): void {
+    this.leaveModes();
+    const residents = [...state.residents].sort((a, z) => a.name.localeCompare(z.name));
+    const jobless = residents.filter((r) => r.job === null).length;
+    const subtitle = residents.length === 0 ? 'Build homes and people will move in.' : `${residents.length} residents · ${jobless} without a job`;
+    const rowH = 58;
+    const list = this.pagedModal('Residents', subtitle, residents.length, rowH, page);
+    const { m } = list;
+    const moods = happinessByResident();
+
+    let y = list.firstY;
+    for (const r of residents.slice(list.from, list.to)) {
+      const row = makeListRow(this, y, rowH, () => this.openJobPicker(r, list.page));
+      const work = state.buildings.find((b) => b.id === r.job);
+      const home = state.buildings.find((b) => b.id === r.home);
+      row.add(makePerson(this, r.id).setPosition(56, y + 12));
+      row.add(makeText(this, 80, y - 10, r.name, 18).setOrigin(0, 0.5));
+      const jobText = work ? this.buildingLabel(work) : 'No job';
+      // Keep it to one line: hand-picked jobs say so, which leaves less room for the home.
+      const homeText = home ? (r.pinned ? ` · ${this.buildingLabel(home)}` : ` · lives in ${this.buildingLabel(home)}`) : '';
+      const detail = `${jobText}${r.pinned ? ' (set by you)' : ''}${homeText}`;
+      row.add(makeText(this, 80, y + 13, detail, 13).setOrigin(0, 0.5).setColor(work ? COLORS.gold : '#ff8a8a'));
+      const mood = Math.round(moods.get(r.id) ?? 50);
+      const moodColor = mood >= 65 ? '#8ee88e' : mood < 35 ? '#ff8a8a' : '#ffffff';
+      row.add(makeText(this, GAME_WIDTH - 44, y - 8, `${mood}%`, 16).setOrigin(1, 0.5).setColor(moodColor));
+      row.add(makeText(this, GAME_WIDTH - 44, y + 13, '›', 18).setOrigin(1, 0.5).setAlpha(0.6));
+      m.add(row);
+      y += rowH;
+    }
+    this.pageControls(m, list.page, list.pages, (p) => this.openResidents(p), () => this.closeModal());
+  }
+
+  /** Where should this resident work? Auto, no job, or any workplace with room. */
+  private openJobPicker(r: Resident, backPage: number, page = 0): void {
+    this.closeModal();
+    type Option = { label: string; sub: string; job: number | null | 'auto'; ok: boolean; current: boolean };
+    const counts = workerCounts();
+    const options: Option[] = [
+      { label: 'Auto', sub: 'Let the town decide', job: 'auto', ok: true, current: !r.pinned },
+      { label: 'No job', sub: 'Stay at home', job: null, ok: true, current: !!r.pinned && r.job === null },
+    ];
+    const workplaces = state.buildings.filter(isWorkplace).sort((a, z) => a.type.localeCompare(z.type) || a.id - z.id);
+    for (const b of workplaces) {
+      const slots = jobSlots(b);
+      const here = r.job === b.id;
+      const full = !here && pinnedWorkers(b) >= slots;
+      const sub = full ? 'Full (all picked by you)' : `Workers ${counts.get(b.id) ?? 0}/${slots}`;
+      options.push({ label: this.buildingLabel(b), sub, job: b.id, ok: !full, current: !!r.pinned && here });
+    }
+
+    const rowH = 54;
+    const list = this.pagedModal(`Job for ${r.name}`, 'Hand-picked jobs stay put', options.length, rowH, page);
+    const { m } = list;
+    let y = list.firstY;
+    for (const o of options.slice(list.from, list.to)) {
+      const pick = () => {
+        if (chooseJob(r, o.job)) this.openResidents(backPage);
+      };
+      const row = makeListRow(this, y, rowH, o.ok ? pick : null, o.current);
+      row.add(makeText(this, 48, y - 9, o.label, 17).setOrigin(0, 0.5).setAlpha(o.ok ? 1 : 0.5));
+      row.add(makeText(this, 48, y + 12, o.sub, 13).setOrigin(0, 0.5).setAlpha(0.7));
+      if (o.current) row.add(makeText(this, GAME_WIDTH - 44, y, '✓', 20).setOrigin(1, 0.5).setColor('#8ee88e'));
+      m.add(row);
+      y += rowH;
+    }
+    this.pageControls(m, list.page, list.pages, (p) => this.openJobPicker(r, backPage, p), () => this.openResidents(backPage), 'Back');
+  }
+
+  private openSettingsMenu(): void {
+    this.leaveModes();
     openSettings(this, (m) => (this.modal = m));
   }
 
@@ -998,15 +1208,15 @@ export class TownScene extends Phaser.Scene {
   private openBuildMenu(tab = this.buildTab): void {
     this.closeModal();
     this.buildTab = tab;
-    const defs = BUILDINGS.filter((d) => TAB_CATEGORIES[tab].includes(d.category));
+    const defs = BUILDINGS.filter((d) => tabOf(d) === tab);
     const rowH = 100;
     const m = (this.modal = new Modal(this, 170 + defs.length * rowH));
     m.text(GAME_WIDTH / 2, m.top + 30, 'Build', 26);
 
-    const tabs: [BuildTab, string][] = [['homes', 'Homes'], ['work', 'Work'], ['decor', 'Decor']];
+    const tabs: [BuildTab, string][] = [['homes', 'Homes'], ['shops', 'Shops'], ['services', 'Services'], ['decor', 'Decor']];
     tabs.forEach(([id, label], i) => {
-      const x = GAME_WIDTH / 2 + (i - 1) * 128;
-      const btn = makeButton(this, x, m.top + 72, 120, 40, label, () => this.openBuildMenu(id), COLORS.primary, 18);
+      const x = GAME_WIDTH / 2 + (i - 1.5) * 100;
+      const btn = makeButton(this, x, m.top + 72, 94, 40, label, () => this.openBuildMenu(id), COLORS.primary, 15);
       btn.setEnabledLook(id === tab, COLORS.primary);
       m.add(btn);
     });
@@ -1059,6 +1269,13 @@ export class TownScene extends Phaser.Scene {
     const jobs = def.jobs?.(1) ?? 0;
     const pay = def.incomePerWorker?.(1) ?? 0;
     const jobText = `${jobs} job${jobs === 1 ? '' : 's'}`;
+    const boost = def.standBoostPerWorker?.(1);
+    if (boost) return `${size} · ${jobText} · +${Math.round(boost * 100)}% Fish Stands each`;
+    // Kept short (no size) so the line fits beside the price button.
+    if (def.offlineHoursPerWorker) return `${jobText} · +${def.offlineHoursPerWorker(1)}h cap each`;
+    if (def.moodPerWorker) return `${jobText} · +${def.moodPerWorker.amount(1)} mood each`;
+    if (def.hookPerWorker) return `${jobText} · +${def.hookPerWorker} fish each`;
+    if (def.sonarPerWorker) return `${jobText} · +${def.sonarPerWorker(1)}m sonar each`;
     return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/min each` : `${size} · ${jobText}`;
   }
 
@@ -1076,7 +1293,14 @@ export class TownScene extends Phaser.Scene {
     const isDecor = !!def.happiness;
     const upgradable = def.maxLevel > 1;
     const height =
-      104 + (isHome ? 144 : 0) + (isWork ? 156 : 0) + (isDecor ? 70 : 0) + (upgradable ? 70 : 0) + sells.length * 66 + 130;
+      104 +
+      (isHome ? 144 : 0) +
+      (isWork ? 156 : 0) +
+      (isDecor ? 70 : 0) +
+      (upgradable ? 70 : 0) +
+      sells.length * 66 +
+      (def.id === 'baitShop' ? 66 : 0) +
+      130;
     const m = (this.modal = new Modal(this, height));
     const reopen = () => this.openBuildingPanel(b);
     const right = GAME_WIDTH - 90;
@@ -1102,7 +1326,9 @@ export class TownScene extends Phaser.Scene {
       const shown = avg ?? Math.min(100, mood.total + 10);
       const color = shown >= 65 ? '#8ee88e' : shown < 35 ? '#ff8a8a' : COLORS.gold;
       m.text(40, y, `Happiness ${Math.round(shown)}%${avg === null ? ' (expected)' : ''}`, 18, 0).setColor(color);
-      const parts = [`base ${mood.base}`, `decor +${mood.decor}`, `road +${mood.road}`, 'job ±10'];
+      const parts = [`base ${mood.base}`, `decor +${mood.decor}`, `road +${mood.road}`];
+      if (mood.tavern > 0) parts.push(`tavern +${mood.tavern}`);
+      parts.push('job ±10');
       m.text(40, y + 26, parts.join(' · '), 14, 0).setAlpha(0.75);
       y += 74;
     }
@@ -1149,7 +1375,13 @@ export class TownScene extends Phaser.Scene {
         const mood = averageHappiness(workers, moods) ?? 50;
         const extras = [`mood ×${incomeMultiplier(mood).toFixed(2)}`];
         if (touchesRoad(b)) extras.push('road +10%');
-        status = perWorker > 0 ? `Earning $${fmtRate(workplaceIncome(b, moods))}/min (${extras.join(', ')})` : 'Open for business';
+        const fillets = filletBoost();
+        if (def.id === 'fishStand' && fillets > 0) extras.push(`fillets +${Math.round(fillets * 100)}%`);
+        const boost = def.standBoostPerWorker?.(b.level);
+        const service = this.serviceStatus(b, workers.length);
+        if (boost) status = `Fish Stands earn +${Math.round(boost * workers.length * 100)}%`;
+        else if (service) status = service;
+        else status = perWorker > 0 ? `Earning $${fmtRate(workplaceIncome(b, moods))}/min (${extras.join(', ')})` : 'Open for business';
       } else {
         color = '#ff8a8a';
         const closed = sells.length > 0 ? 'Closed: needs a shopkeeper. ' : 'No workers. ';
@@ -1203,6 +1435,14 @@ export class TownScene extends Phaser.Scene {
       y += 66;
     }
 
+    if (def.id === 'baitShop') {
+      const owned = BAITS.reduce((sum, bt) => sum + (state.bait[bt.id] ?? 0), 0);
+      m.text(40, y - 12, 'Bait', 18, 0);
+      m.text(40, y + 14, owned > 0 ? `You have ${owned} bait` : 'Lures better fish', 14, 0).setAlpha(0.75);
+      m.add(makeButton(this, right, y, 110, 46, 'Shop ›', () => this.openBaitStore(b), COLORS.primary, 18));
+      y += 66;
+    }
+
     const actionsY = m.top + m.height - 92;
     m.add(
       makeButton(this, GAME_WIDTH * 0.3, actionsY, 160, 44, 'Move', () => {
@@ -1212,6 +1452,38 @@ export class TownScene extends Phaser.Scene {
       makeButton(this, GAME_WIDTH * 0.7, actionsY, 160, 44, `Sell $${formatCoins(sellValue(b))}`, () => this.confirmSell(b), COLORS.danger, 20),
       makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral),
     );
+  }
+
+  /** Bait for sale at the Bait Shop, one row per tier. */
+  private openBaitStore(shop: PlacedBuilding): void {
+    this.closeModal();
+    this.panelFor = undefined;
+    const rowH = 84;
+    const m = (this.modal = new Modal(this, 170 + BAITS.length * rowH));
+    const open = shopOpen('baitShop');
+    m.text(GAME_WIDTH / 2, m.top + 30, 'Bait', 26);
+    m.text(GAME_WIDTH / 2, m.top + 62, 'One bait is used per cast. Pick it on the dock.', 14).setAlpha(0.8);
+
+    let y = m.top + 116;
+    for (const bait of BAITS) {
+      const unlocked = baitUnlocked(bait);
+      const owned = state.bait[bait.id] ?? 0;
+      m.add(this.add.circle(48, y, 13, bait.color).setStrokeStyle(2, 0x000000, 0.3).setAlpha(unlocked ? 1 : 0.35));
+      m.text(74, y - 24, `${bait.name} ×${bait.packSize}`, 18, 0);
+      m.text(74, y, `+${Math.round(bait.sellBonus * 100)}% sale · ${bait.lures}`, 13, 0).setColor(COLORS.gold);
+      m.text(74, y + 20, unlocked ? `Owned ${owned}` : `Unlocks at house level ${bait.unlockLevel}`, 12, 0).setColor(
+        unlocked ? '#ffffff' : '#ffb4a2',
+      ).setAlpha(unlocked ? 0.65 : 1);
+      const label = !unlocked ? `Lv ${bait.unlockLevel}` : !open ? 'Closed' : `$${formatCoins(bait.packCost)}`;
+      const btn = makeButton(this, GAME_WIDTH - 80, y, 100, 46, label, () => {
+        if (buyBait(bait)) this.openBaitStore(shop);
+      }, COLORS.buy, 18);
+      btn.setEnabledLook(unlocked && open && state.coins >= bait.packCost, COLORS.buy);
+      m.add(btn);
+      y += rowH;
+    }
+    if (!open) m.text(GAME_WIDTH / 2, y - 16, 'Closed: the Bait Shop needs a shopkeeper.', 14).setColor('#ff8a8a');
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Back', () => this.openBuildingPanel(shop), COLORS.neutral));
   }
 
   /** Your house: the town level, what the next level needs, and what it unlocks. */
@@ -1244,7 +1516,9 @@ export class TownScene extends Phaser.Scene {
       y += 26;
       const perks = unlocks.map((d) => d.name);
       for (const d of BUILDINGS) {
-        if (d.countPerLevel && d.countPerLevel * level < d.maxCount) perks.push(`+${d.countPerLevel} ${d.name}s`);
+        if (!d.countAtLevel) continue;
+        const more = Math.min(d.maxCount, d.countAtLevel(level + 1)) - Math.min(d.maxCount, d.countAtLevel(level));
+        if (more > 0) perks.push(`+${more} ${d.name}${more === 1 ? '' : 's'}`);
       }
       perks.push(`building upgrades to Lv ${level + 1}`);
       m.text(40, y, `Unlocks: ${perks.join(', ')}`, 14, 0).setOrigin(0, 0).setAlpha(0.85).setWordWrapWidth(GAME_WIDTH - 90);
@@ -1272,6 +1546,19 @@ export class TownScene extends Phaser.Scene {
     );
   }
 
+  /** What a staffed service building is doing for the town right now, or undefined. */
+  private serviceStatus(b: PlacedBuilding, workers: number): string | undefined {
+    const def = defOf(b);
+    if (def.offlineHoursPerWorker) return `Offline earnings cap: ${offlineCapHours()}h (+${def.offlineHoursPerWorker(b.level) * workers}h here)`;
+    if (def.moodPerWorker) {
+      const homes = state.buildings.filter((h) => defOf(h).housing && tileGap(b, h) <= def.moodPerWorker!.radius).length;
+      return `+${def.moodPerWorker.amount(b.level) * workers} mood for ${homes} home${homes === 1 ? '' : 's'} within ${def.moodPerWorker.radius} tiles`;
+    }
+    if (def.hookPerWorker) return `Your hook carries +${hookBonus()} fish`;
+    if (def.sonarPerWorker) return `Sonar range: ${sonarRange()} m`;
+    return undefined;
+  }
+
   /** What the next level brings, e.g. "+1 job slot" or "+1 resident". */
   private upgradeGain(b: PlacedBuilding): string {
     const def = defOf(b);
@@ -1289,6 +1576,14 @@ export class TownScene extends Phaser.Scene {
       const next = def.incomePerWorker(b.level + 1);
       if (now > 0 && next > now) gains.push(`$${fmtRate(next)}/min per worker`);
     }
+    if (def.standBoostPerWorker) {
+      const pct = (l: number) => Math.round(def.standBoostPerWorker!(l) * 1000) / 10;
+      gains.push(`+${pct(b.level + 1)}% per worker (was ${pct(b.level)}%)`);
+    }
+    const next = b.level + 1;
+    if (def.offlineHoursPerWorker) gains.push(`+${def.offlineHoursPerWorker(next)}h per worker (was ${def.offlineHoursPerWorker(b.level)}h)`);
+    if (def.moodPerWorker) gains.push(`+${def.moodPerWorker.amount(next)} mood per worker (was ${def.moodPerWorker.amount(b.level)})`);
+    if (def.sonarPerWorker) gains.push(`+${def.sonarPerWorker(next)} m per worker (was ${def.sonarPerWorker(b.level)} m)`);
     if (UPGRADES.some((u) => u.shop === def.id)) gains.push('better gear');
     return gains.join(', ');
   }

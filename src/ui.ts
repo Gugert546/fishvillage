@@ -147,12 +147,14 @@ export class TopBar {
   private lastFace = '';
   private showPopulation: boolean;
   private gear?: Phaser.GameObjects.Container;
+  /** Invisible tap target over the population counter. */
+  private populationHit?: Phaser.GameObjects.Rectangle;
   /** Right edge for the readouts, left of the settings gear. */
   private rightEdge: number;
   /** Free slot on the right for scene-specific info (e.g. line depth while fishing). */
   readonly right: Phaser.GameObjects.Text;
 
-  constructor(scene: Phaser.Scene, showPopulation = true, onSettings?: () => void) {
+  constructor(scene: Phaser.Scene, showPopulation = true, onSettings?: () => void, onPopulation?: () => void) {
     this.rightEdge = onSettings ? GAME_WIDTH - 46 : GAME_WIDTH - 14;
     this.personIcon = scene.add.graphics();
     this.personIcon.fillStyle(0xf1faee);
@@ -172,6 +174,11 @@ export class TopBar {
       (this.right = makeText(scene, this.rightEdge, 22, '', 18).setOrigin(1, 0.5)),
     ];
     if (onSettings) items.push((this.gear = makeGearButton(scene, GAME_WIDTH - 22, 22, onSettings)));
+    if (onPopulation && showPopulation) {
+      this.populationHit = scene.add.rectangle(0, 22, 80, 44, 0x000000, 0.001).setOrigin(0, 0.5);
+      onTap(this.populationHit, onPopulation);
+      items.push(this.populationHit);
+    }
     for (const o of items) fixToScreen(o).setDepth(UI_DEPTH);
     for (const o of [this.personIcon, this.population, this.face, this.mood]) o.setVisible(showPopulation);
     this.update();
@@ -187,6 +194,7 @@ export class TopBar {
     this.population.setText(`${state.residents.length}/${housingCapacity()}`);
     this.population.setX(this.rightEdge - this.population.width);
     this.personIcon.setPosition(this.population.x - 12, 22);
+    this.populationHit?.setX(this.population.x - 24).setSize(this.population.width + 30, 44);
 
     const h = townHappiness();
     this.mood.setText(h === null ? '–' : `${Math.round(h)}%`);
@@ -339,4 +347,32 @@ function confirmReset(scene: Phaser.Scene, setModal: (m: Modal | undefined) => v
       openSettings(scene, setModal);
     }, COLORS.neutral),
   );
+}
+
+/** Tap handler that only fires when the press started on the object (see makeButton). */
+export function onTap(obj: Phaser.GameObjects.GameObject, handler: () => void): void {
+  let pressed = false;
+  obj.setInteractive({ useHandCursor: true });
+  obj.on('pointerdown', () => (pressed = true));
+  obj.on('pointerout', () => (pressed = false));
+  obj.on('pointerup', () => {
+    if (!pressed) return;
+    pressed = false;
+    handler();
+  });
+}
+
+/** A full-width tappable row for lists; add your own texts/icons to the returned container. */
+export function makeListRow(
+  scene: Phaser.Scene,
+  y: number,
+  h: number,
+  onClick: (() => void) | null,
+  highlight = false,
+): Phaser.GameObjects.Container {
+  const w = GAME_WIDTH - 64;
+  const bg = scene.add.rectangle(GAME_WIDTH / 2, y, w, h - 6, 0x264b73, onClick ? 1 : 0.45);
+  if (highlight) bg.setStrokeStyle(2, 0x8ee88e);
+  if (onClick) onTap(bg, onClick);
+  return scene.add.container(0, 0, [bg]);
 }

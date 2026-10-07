@@ -1,6 +1,7 @@
 // Town rules: where buildings fit, what things cost, and what the shops allow.
 
 import {
+  BAITS,
   BUILDING_BY_ID,
   BUILDINGS,
   MAX_ROWS,
@@ -12,6 +13,7 @@ import {
   TOWN_COLS,
   expansionCost,
   upgradeCost,
+  type BaitDef,
   type BuildingDef,
   type BuildingId,
   type UpgradeDef,
@@ -46,7 +48,7 @@ export function countOwned(type: BuildingId): number {
 
 /** How many of a building you may own right now, given the town level. */
 export function countCap(def: BuildingDef): number {
-  return def.countPerLevel ? Math.min(def.maxCount, def.countPerLevel * townLevel()) : def.maxCount;
+  return def.countAtLevel ? Math.min(def.maxCount, def.countAtLevel(townLevel())) : def.maxCount;
 }
 
 /** Highest level a building can be upgraded to right now: its own max, and never past the town level. */
@@ -242,4 +244,44 @@ export function ensurePlayerHouse(): void {
   const level = state.buildings.reduce((max, b) => Math.max(max, BUILDING_BY_ID[b.type].unlockLevel ?? 1), 1);
   state.buildings.push({ id: state.nextBuildingId++, type: 'playerHouse', ...spot, level, spent: 0 });
   save();
+}
+
+// ---------------------------------------------------------------------- Bait
+
+export function baitUnlocked(bait: BaitDef): boolean {
+  return townLevel() >= bait.unlockLevel;
+}
+
+export function buyBait(bait: BaitDef): boolean {
+  if (!shopOpen('baitShop') || !baitUnlocked(bait) || state.coins < bait.packCost) return false;
+  state.coins -= bait.packCost;
+  state.bait[bait.id] = (state.bait[bait.id] ?? 0) + bait.packSize;
+  // First bait of its kind gets picked automatically, so it's actually used.
+  if (!state.selectedBait) state.selectedBait = bait.id;
+  save();
+  return true;
+}
+
+/** The bait the next cast will use: the selected one, if any is left. */
+export function readyBait(): BaitDef | undefined {
+  const id = state.selectedBait;
+  return id && (state.bait[id] ?? 0) > 0 ? BAITS.find((b) => b.id === id) : undefined;
+}
+
+/** Cycles the dock's bait choice: none → each bait you own → none. */
+export function cycleBait(): void {
+  const owned = BAITS.filter((b) => (state.bait[b.id] ?? 0) > 0).map((b) => b.id);
+  const order: (BaitDef['id'] | null)[] = [null, ...owned];
+  const i = order.indexOf(state.selectedBait && owned.includes(state.selectedBait) ? state.selectedBait : null);
+  state.selectedBait = order[(i + 1) % order.length];
+  save();
+}
+
+/** Uses one of the ready bait for a cast and returns it, or undefined when fishing without. */
+export function consumeBait(): BaitDef | undefined {
+  const bait = readyBait();
+  if (!bait) return undefined;
+  state.bait[bait.id] = (state.bait[bait.id] ?? 0) - 1;
+  save();
+  return bait;
 }

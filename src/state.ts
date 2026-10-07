@@ -1,4 +1,4 @@
-import { BASE_STATS, UPGRADES, type BuildingId, type FishingStats, type UpgradeId } from './config';
+import { BASE_STATS, UPGRADES, type BaitId, type BuildingId, type FishingStats, type UpgradeId } from './config';
 
 const SAVE_KEY = 'fishvillage.save.v1';
 const SAVE_VERSION = 2;
@@ -25,6 +25,8 @@ export interface Resident {
   home: number;
   /** Building id of their workplace, or null if unemployed. */
   job: number | null;
+  /** The player chose this job (or no job) by hand; auto-assignment leaves it alone. */
+  pinned?: boolean;
 }
 
 export interface GameState {
@@ -34,6 +36,10 @@ export interface GameState {
   upgrades: Record<UpgradeId, number>;
   /** Total caught per fish id, for the future aquarium/collection. */
   caught: Record<string, number>;
+  /** Bait owned, per kind. */
+  bait: Partial<Record<BaitId, number>>;
+  /** Bait to use on the next cast, or null for none. */
+  selectedBait: BaitId | null;
   buildings: PlacedBuilding[];
   residents: Resident[];
   /** Seconds accumulated toward the next resident moving in. */
@@ -50,6 +56,8 @@ function freshState(): GameState {
     coins: 0,
     upgrades: { line: 0, capacity: 0, shield: 0, reel: 0 },
     caught: {},
+    bait: {},
+    selectedBait: null,
     buildings: [],
     residents: [],
     moveInTimer: 0,

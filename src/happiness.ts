@@ -2,13 +2,15 @@
 
 import { HAPPINESS } from './config';
 import { defOf } from './population';
+import { tavernMood } from './services';
 import { state, type PlacedBuilding, type Resident } from './state';
 
 export interface HomeMood {
   base: number;
   decor: number;
   road: number;
-  /** base + decor + road, before the per-resident job modifier. */
+  tavern: number;
+  /** base + decor + road + tavern, before the per-resident job modifier. */
   total: number;
 }
 
@@ -50,9 +52,13 @@ export function decorBonus(decor: PlacedBuilding, home: PlacedBuilding): number 
 
 export function homeMood(home: PlacedBuilding, roads = roadTiles()): HomeMood {
   let decor = 0;
-  for (const b of state.buildings) decor += decorBonus(b, home);
+  let tavern = 0;
+  for (const b of state.buildings) {
+    decor += decorBonus(b, home);
+    if (defOf(b).moodPerWorker) tavern += tavernMood(b, tileGap(b, home));
+  }
   const road = touchesRoad(home, roads) ? HAPPINESS.roadNextToHome : 0;
-  return { base: HAPPINESS.base, decor, road, total: HAPPINESS.base + decor + road };
+  return { base: HAPPINESS.base, decor, road, tavern, total: HAPPINESS.base + decor + road + tavern };
 }
 
 export function residentHappiness(r: Resident, mood: HomeMood): number {
@@ -68,7 +74,7 @@ export function happinessByResident(): Map<number, number> {
     let mood = moods.get(r.home);
     if (!mood) {
       const home = state.buildings.find((b) => b.id === r.home);
-      mood = home ? homeMood(home, roads) : { base: HAPPINESS.base, decor: 0, road: 0, total: HAPPINESS.base };
+      mood = home ? homeMood(home, roads) : { base: HAPPINESS.base, decor: 0, road: 0, tavern: 0, total: HAPPINESS.base };
       moods.set(r.home, mood);
     }
     out.set(r.id, residentHappiness(r, mood));
@@ -98,14 +104,31 @@ function scale(happiness: number, atZero: number, atFull: number): number {
 export const incomeMultiplier = (h: number) => scale(h, HAPPINESS.incomeAtZero, HAPPINESS.incomeAtFull);
 export const moveInMultiplier = (h: number) => scale(h, HAPPINESS.moveInAtZero, HAPPINESS.moveInAtFull);
 
+/** Extra Fish Stand income from Fillet House workers, e.g. 0.3 = +30%. */
+export function filletBoost(): number {
+  let boost = 0;
+  for (const b of state.buildings) {
+    const perWorker = defOf(b).standBoostPerWorker?.(b.level);
+    if (!perWorker) continue;
+    boost += perWorker * state.residents.filter((r) => r.job === b.id).length;
+  }
+  return boost;
+}
+
 /** Coins per minute for one workplace, given its workers' moods and road access. */
-export function workplaceIncome(b: PlacedBuilding, byResident = happinessByResident(), roads = roadTiles()): number {
+export function workplaceIncome(
+  b: PlacedBuilding,
+  byResident = happinessByResident(),
+  roads = roadTiles(),
+  fillets = filletBoost(),
+): number {
   const perWorker = defOf(b).incomePerWorker?.(b.level) ?? 0;
   if (perWorker === 0) return 0;
   let total = 0;
   for (const r of state.residents) {
     if (r.job === b.id) total += perWorker * incomeMultiplier(byResident.get(r.id) ?? 50);
   }
+  if (b.type === 'fishStand') total *= 1 + fillets;
   return total * (touchesRoad(b, roads) ? 1 + HAPPINESS.roadIncomeBonus : 1);
 }
 
@@ -113,5 +136,6 @@ export function workplaceIncome(b: PlacedBuilding, byResident = happinessByResid
 export function totalIncome(): number {
   const byResident = happinessByResident();
   const roads = roadTiles();
-  return state.buildings.reduce((sum, b) => sum + workplaceIncome(b, byResident, roads), 0);
+  const fillets = filletBoost();
+  return state.buildings.reduce((sum, b) => sum + workplaceIncome(b, byResident, roads, fillets), 0);
 }

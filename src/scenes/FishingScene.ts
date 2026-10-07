@@ -13,12 +13,14 @@ import {
   SURFACE_Y,
   WORLD_DEPTH_M,
   ZONES,
+  type BaitDef,
   type FishType,
   type FishingStats,
 } from '../config';
 import { fishingStats, save, state } from '../state';
 import { tickEconomy } from '../economy';
-import { townLevel } from '../town';
+import { hookBonus, sonarRange } from '../services';
+import { consumeBait, cycleBait, readyBait, townLevel } from '../town';
 import { makeTextures } from '../textures';
 import {
   COLORS,
@@ -31,6 +33,7 @@ import {
   makeText,
   openSettings,
   showOfflineEarnings,
+  type Button,
 } from '../ui';
 
 type Phase = 'idle' | 'descending' | 'ascending' | 'results';
@@ -75,6 +78,13 @@ export class FishingScene extends Phaser.Scene {
   private hookText!: Phaser.GameObjects.Text;
   private promptText!: Phaser.GameObjects.Text;
   private townButton!: Phaser.GameObjects.Container;
+  private baitButton!: Button;
+  /** Bait used on the current cast (sale bonus); fish in the water were lured by it too. */
+  private activeBait?: BaitDef;
+  /** Lighthouse sonar range in metres (0 = none). */
+  private sonar = 0;
+  private sonarGfx!: Phaser.GameObjects.Graphics;
+  private sonarTags: Phaser.GameObjects.Text[] = [];
   private modal?: Modal;
 
   constructor() {
@@ -86,11 +96,13 @@ export class FishingScene extends Phaser.Scene {
     this.fish = [];
     this.caught = [];
     this.modal = undefined;
+    this.sonarTags = [];
 
     makeTextures(this);
     this.drawWorld();
 
     this.line = this.add.graphics().setDepth(10);
+    this.sonarGfx = this.add.graphics().setDepth(8);
     this.shieldRing = this.add.circle(0, 0, HOOK_RADIUS + 7).setStrokeStyle(2, 0xffe066, 0.9).setDepth(11);
     this.hook = this.add.image(0, 0, 'hook').setDepth(12);
 
@@ -179,6 +191,29 @@ export class FishingScene extends Phaser.Scene {
     this.townButton = hud(
       makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 60, 200, 52, 'Town', () => this.scene.start('Town'), COLORS.neutral),
     );
+    // Tap to cycle through the bait you own; the water restocks to match.
+    this.baitButton = hud(
+      makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 124, 240, 46, '', () => {
+        cycleBait();
+        this.restockWater();
+        this.refreshBaitButton();
+      }, COLORS.primary, 18),
+    );
+  }
+
+  private refreshBaitButton(): void {
+    const owned = Object.values(state.bait).some((n) => (n ?? 0) > 0);
+    const bait = readyBait();
+    this.baitButton.setVisible(this.phase === 'idle' && owned);
+    this.baitButton.setLabel(bait ? `Bait: ${bait.name} ×${state.bait[bait.id]}` : 'Bait: none');
+    this.baitButton.setEnabledLook(true, bait ? COLORS.primary : COLORS.neutral);
+  }
+
+  /** Respawns the fish, e.g. after choosing different bait. */
+  private restockWater(): void {
+    for (const f of this.fish) f.sprite.destroy();
+    this.fish = [];
+    this.spawnFish();
   }
 
   private setupInput(): void {
@@ -204,9 +239,13 @@ export class FishingScene extends Phaser.Scene {
   private resetToDock(): void {
     this.phase = 'idle';
     this.stats = fishingStats();
+    // Town services: Net Makers add hook capacity, Lighthouse keepers run the sonar.
+    this.stats.capacity += hookBonus();
+    this.sonar = sonarRange();
     for (const f of [...this.fish, ...this.caught]) f.sprite.destroy();
     this.fish = [];
     this.caught = [];
+    this.activeBait = undefined;
     this.spawnFish();
 
     this.hookX = HOOK_REST.x;
@@ -219,10 +258,13 @@ export class FishingScene extends Phaser.Scene {
     this.topBar.setSettingsVisible(true);
     this.hookText.setText('');
     this.refreshHud();
+    this.refreshBaitButton();
   }
 
   private cast(): void {
     this.phase = 'descending';
+    this.activeBait = consumeBait();
+    this.baitButton.setVisible(false);
     this.shieldsLeft = this.stats.shields;
     this.invulnerableUntil = 0;
     this.promptText.setVisible(false);
@@ -254,17 +296,24 @@ export class FishingScene extends Phaser.Scene {
 
   // --------------------------------------------------------------- Fish
 
-  /** Sale price including your house's level bonus. */
+  private houseBonus(): number {
+    return FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1);
+  }
+
+  /** Sale price including your house's level bonus and this cast's bait. */
   private priceOf(type: FishType): number {
-    return Math.round(type.value * (1 + FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1)));
+    return Math.round(type.value * (1 + this.houseBonus() + (this.activeBait?.sellBonus ?? 0)));
   }
 
   private spawnFish(): void {
+    // The bait you're about to use is already in the water, luring fish.
+    const bait = readyBait();
+    const density = FISH_DENSITY * (bait?.density ?? 1);
     for (let seg = 0; seg < WORLD_DEPTH_M; seg += 10) {
-      const n = Math.floor(FISH_DENSITY + Math.random());
+      const n = Math.floor(density + Math.random());
       for (let i = 0; i < n; i++) {
         const depth = seg + Math.random() * 10;
-        const type = this.pickFishType(depth);
+        const type = this.pickFishType(depth, bait);
         if (!type) continue;
         const x = Phaser.Math.Between(40, GAME_WIDTH - 40);
         const y = SURFACE_Y + depth * PX_PER_M;
@@ -276,11 +325,12 @@ export class FishingScene extends Phaser.Scene {
     }
   }
 
-  private pickFishType(depth: number): FishType | undefined {
+  private pickFishType(depth: number, bait?: BaitDef): FishType | undefined {
     const options = FISH.filter((f) => depth >= f.minDepth && depth <= f.maxDepth);
-    let roll = Math.random() * options.reduce((sum, f) => sum + f.weight, 0);
+    const weight = (f: FishType) => f.weight * (bait?.attract[f.id] ?? 1);
+    let roll = Math.random() * options.reduce((sum, f) => sum + weight(f), 0);
     for (const f of options) {
-      roll -= f.weight;
+      roll -= weight(f);
       if (roll <= 0) return f;
     }
     return options[options.length - 1];
@@ -369,7 +419,46 @@ export class FishingScene extends Phaser.Scene {
 
     this.updateCamera(dt);
     this.drawLineAndHook(time);
+    this.drawSonar(time);
     this.refreshHud();
+  }
+
+  /**
+   * Lighthouse sonar: a ping ring from the hook, a price tag on every fish in range, and a
+   * pulsing red ring on fish right in your path on the way down.
+   */
+  private drawSonar(time: number): void {
+    const g = this.sonarGfx.clear();
+    for (const t of this.sonarTags) t.setVisible(false);
+    const casting = this.phase === 'descending' || this.phase === 'ascending';
+    if (this.sonar <= 0 || !casting) return;
+
+    const rangePx = this.sonar * PX_PER_M;
+    const ping = (time % 1400) / 1400;
+    g.lineStyle(2, 0x8ee88e, 0.5 * (1 - ping)).strokeCircle(this.hookX, this.hookY, ping * rangePx);
+
+    let used = 0;
+    const pulse = 0.5 + 0.5 * Math.sin(time / 90);
+    for (const f of this.fish) {
+      const dy = f.sprite.y - this.hookY;
+      const inRange = this.phase === 'descending' ? dy > 0 && dy < rangePx : Math.abs(dy) < rangePx;
+      if (!inRange) continue;
+
+      const inPath = this.phase === 'descending' && Math.abs(f.sprite.x - this.hookX) < f.sprite.width / 2 + 22;
+      if (inPath) {
+        g.lineStyle(3, 0xff5a5a, 0.4 + 0.5 * pulse).strokeEllipse(f.sprite.x, f.sprite.y, f.sprite.width + 16, f.type.height + 16);
+      }
+
+      if (used >= 24) continue;
+      let tag = this.sonarTags[used];
+      if (!tag) {
+        tag = makeText(this, 0, 0, '', 13).setOrigin(0.5, 1).setDepth(9);
+        this.sonarTags.push(tag);
+      }
+      tag.setText(`$${this.priceOf(f.type)}`).setPosition(f.sprite.x, f.sprite.y - f.type.height / 2 - 4).setVisible(true);
+      tag.setColor(inPath ? '#ff8a8a' : COLORS.gold);
+      used++;
+    }
   }
 
   private steerHook(dt: number): void {
@@ -427,13 +516,16 @@ export class FishingScene extends Phaser.Scene {
 
   private showResults(counts: Map<FishType, number>, total: number): void {
     const rows = Math.max(1, counts.size);
-    const bonus = Math.round(FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1) * 100);
-    const m = (this.modal = new Modal(this, 200 + rows * 34 + (bonus > 0 ? 26 : 0)));
+    const bonuses: string[] = [];
+    if (this.houseBonus() > 0) bonuses.push(`house +${Math.round(this.houseBonus() * 100)}%`);
+    if (this.activeBait) bonuses.push(`${this.activeBait.name.toLowerCase()} +${Math.round(this.activeBait.sellBonus * 100)}%`);
+    const bonus = bonuses.length > 0;
+    const m = (this.modal = new Modal(this, 200 + rows * 34 + (bonus ? 26 : 0)));
 
     m.text(GAME_WIDTH / 2, m.top + 36, total > 0 ? 'Nice catch!' : 'Nothing this time', 28);
     let y = m.top + 84;
-    if (bonus > 0) {
-      m.text(GAME_WIDTH / 2, y - 12, `Your house: fish sell for +${bonus}%`, 14).setAlpha(0.75);
+    if (bonus) {
+      m.text(GAME_WIDTH / 2, y - 12, `Bonuses: ${bonuses.join(', ')}`, 14).setAlpha(0.75);
       y += 26;
     }
     if (counts.size === 0) m.text(GAME_WIDTH / 2, y, 'Steer into fish on the way up!', 18).setAlpha(0.8);

@@ -64,30 +64,45 @@ export function shopOpen(type: BuildingId): boolean {
 /**
  * Distribute residents over workplaces: priority workplaces first, then oldest first, each up to
  * its staff target. Residents keep their current job when it's still wanted, so jobs don't shuffle.
+ * Residents whose job the player picked by hand ("pinned") are never moved; they fill their
+ * workplace's slots first and everyone else works around them.
  */
 export function assignJobs(): void {
   const workplaces = state.buildings
     .filter(isWorkplace)
     .sort((a, b) => Number(!!b.priority) - Number(!!a.priority) || a.id - b.id);
+  const workplaceIds = new Set(workplaces.map((w) => w.id));
 
-  let available = state.residents.length;
+  // Pinned residents whose workplace is gone go back to auto.
+  const pinnedAt = new Map<number, number>();
+  for (const r of state.residents) {
+    if (!r.pinned || r.job === null) continue;
+    if (!workplaceIds.has(r.job)) {
+      r.pinned = false;
+      r.job = null;
+    } else {
+      pinnedAt.set(r.job, (pinnedAt.get(r.job) ?? 0) + 1);
+    }
+  }
+
+  let available = state.residents.filter((r) => !r.pinned).length;
   const wanted = new Map<number, number>();
   for (const w of workplaces) {
-    const n = Math.min(staffTarget(w), available);
+    const n = Math.min(Math.max(0, staffTarget(w) - (pinnedAt.get(w.id) ?? 0)), available);
     wanted.set(w.id, n);
     available -= n;
   }
 
   const filled = new Map<number, number>();
   for (const r of state.residents) {
-    if (r.job === null) continue;
+    if (r.job === null || r.pinned) continue;
     const want = wanted.get(r.job);
     const have = filled.get(r.job) ?? 0;
     if (want === undefined || have >= want) r.job = null;
     else filled.set(r.job, have + 1);
   }
 
-  const unemployed = state.residents.filter((r) => r.job === null);
+  const unemployed = state.residents.filter((r) => r.job === null && !r.pinned);
   for (const w of workplaces) {
     let have = filled.get(w.id) ?? 0;
     const want = wanted.get(w.id) ?? 0;
@@ -145,4 +160,32 @@ export function evictFrom(b: PlacedBuilding): void {
     else state.residents = state.residents.filter((other) => other !== r);
   }
   for (const r of workersOf(b)) r.job = null;
+}
+
+/** Workers placed here by hand; these can't be bumped to make room. */
+export function pinnedWorkers(b: PlacedBuilding): number {
+  return state.residents.filter((r) => r.pinned && r.job === b.id).length;
+}
+
+/**
+ * The player picks a job for a resident: a workplace, null for "no job", or "auto" to hand the
+ * choice back to the town. Picking a full workplace bumps one of its auto-assigned workers.
+ */
+export function chooseJob(r: Resident, job: number | null | 'auto'): boolean {
+  if (job === 'auto') {
+    r.pinned = false;
+  } else if (job === null) {
+    r.pinned = true;
+    r.job = null;
+  } else {
+    const b = state.buildings.find((x) => x.id === job);
+    if (!b || !isWorkplace(b)) return false;
+    if (r.job !== job && pinnedWorkers(b) >= jobSlots(b)) return false;
+    r.pinned = true;
+    r.job = job;
+    // Keep the staff setting from fighting the hand-picked workers.
+    if (b.staff !== undefined && b.staff < pinnedWorkers(b)) b.staff = pinnedWorkers(b);
+  }
+  assignJobs();
+  return true;
 }

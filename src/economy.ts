@@ -1,9 +1,9 @@
 // Passive income and town growth. Both run on wall-clock time, so they keep going while the
-// app is backgrounded or closed (up to OFFLINE_CAP_HOURS).
+// app is backgrounded or closed (up to the offline cap, which Warehouses raise).
 
-import { OFFLINE_CAP_HOURS } from './config';
 import { moveInMultiplier, totalIncome, townHappiness } from './happiness';
 import { tickPopulation } from './population';
+import { offlineCapHours } from './services';
 import { save, state, type Resident } from './state';
 
 /** Gaps longer than this count as "you were away" and get a welcome-back popup. */
@@ -25,7 +25,7 @@ export function tickEconomy(): void {
   const now = Date.now();
   const gapS = Math.max(0, (now - lastTick) / 1000);
   lastTick = now;
-  const effective = Math.min(gapS, OFFLINE_CAP_HOURS * 3600);
+  const effective = Math.min(gapS, offlineCapHours() * 3600);
 
   // Pay out with the current workforce first, then let new residents arrive.
   const earned = (incomePerMinute() / 60) * effective;

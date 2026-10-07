@@ -63,6 +63,39 @@ export const FISH: FishType[] = [
 /** Average fish per 10 m of depth. */
 export const FISH_DENSITY = 1.7;
 
+// ---------------------------------------------------------------------- Bait
+// Bought in packs at the Bait Shop; one is used per cast. Bait raises what fish sell for and
+// lures better fish: more fish overall, and some species much more often.
+
+export type BaitId = 'worm' | 'shrimp' | 'squid' | 'glow';
+
+export interface BaitDef {
+  id: BaitId;
+  name: string;
+  /** Short line for the shop, e.g. "Lures Tuna". */
+  lures: string;
+  /** Town level needed to buy it. */
+  unlockLevel: number;
+  packSize: number;
+  packCost: number;
+  /** Extra sale price, e.g. 0.1 = +10%. */
+  sellBonus: number;
+  /** Multiplier on how many fish spawn. */
+  density: number;
+  /** Multipliers on spawn weight per fish id. */
+  attract: Partial<Record<string, number>>;
+  color: number;
+}
+
+export const BAITS: BaitDef[] = [
+  { id: 'worm', name: 'Worms', lures: 'More bites', unlockLevel: 2, packSize: 5, packCost: 20, sellBonus: 0.1, density: 1.15, attract: {}, color: 0xe07a8f },
+  { id: 'shrimp', name: 'Shrimp', lures: 'Lures Cod & Salmon', unlockLevel: 3, packSize: 5, packCost: 75, sellBonus: 0.15, density: 1.1, attract: { cod: 2, salmon: 2 }, color: 0xf4a261 },
+  { id: 'squid', name: 'Squid', lures: 'Lures Tuna', unlockLevel: 4, packSize: 5, packCost: 250, sellBonus: 0.2, density: 1.1, attract: { tuna: 2.5, salmon: 1.5 }, color: 0xcdb4db },
+  { id: 'glow', name: 'Glow Bait', lures: 'Lures Anglerfish', unlockLevel: 5, packSize: 5, packCost: 800, sellBonus: 0.25, density: 1.1, attract: { angler: 4, tuna: 1.5 }, color: 0xb9fbc0 },
+];
+
+export const BAIT_BY_ID = Object.fromEntries(BAITS.map((b) => [b.id, b])) as Record<BaitId, BaitDef>;
+
 // ------------------------------------------------------------------- Fishing
 
 export interface FishingStats {
@@ -223,6 +256,11 @@ export const RESIDENT_NAMES = [
 export type BuildingId =
   | 'playerHouse'
   | 'fishStand'
+  | 'filletHouse'
+  | 'warehouse'
+  | 'tavern'
+  | 'netMaker'
+  | 'lighthouse'
   | 'tackleShop'
   | 'baitShop'
   | 'cottage'
@@ -264,8 +302,20 @@ export interface BuildingDef {
   refund?: number;
   /** Player house level needed before this can be built (default 1). */
   unlockLevel?: number;
-  /** If set, you can own this many per town level (still capped by maxCount). */
-  countPerLevel?: number;
+  /** If set, how many you may own at a given town level (still capped by maxCount). */
+  countAtLevel?: (townLevel: number) => number;
+  /** Processing: each worker raises all Fish Stand income by this share at a given level. */
+  standBoostPerWorker?: (level: number) => number;
+  /** Warehouse: hours each worker adds to the offline earnings cap. */
+  offlineHoursPerWorker?: (level: number) => number;
+  /** Tavern: happiness each worker adds to homes within `radius` tiles. */
+  moodPerWorker?: { amount: (level: number) => number; radius: number };
+  /** Net Maker: extra hook capacity per worker. */
+  hookPerWorker?: number;
+  /** Lighthouse: metres of sonar range per worker. */
+  sonarPerWorker?: (level: number) => number;
+  /** Build menu tab for workplaces that aren't shops. */
+  menuTab?: 'services';
 }
 
 /** One extra job slot every second level: 1, 1, 2, 2, 3… */
@@ -317,11 +367,30 @@ export const BUILDINGS: BuildingDef[] = [
     baseCost: 50,
     costGrowth: 1.5,
     maxCount: 12,
-    countPerLevel: 2,
+    // 2 at town level 1, then one more per level.
+    countAtLevel: (t) => 1 + t,
     maxLevel: 10,
     upgradeCost: (l) => Math.round(40 * Math.pow(1.7, l)),
     jobs: slotsEveryOtherLevel,
     incomePerWorker: (l) => 6 * Math.pow(1.15, l - 1),
+  },
+  {
+    id: 'filletHouse',
+    name: 'Fillet House',
+    description: 'Fillets the catch, so every Fish Stand earns more.',
+    category: 'work',
+    w: 4,
+    h: 2,
+    wall: 0xdad7cd,
+    roof: 0x3a5a40,
+    baseCost: 400,
+    costGrowth: 1,
+    maxCount: 1,
+    maxLevel: 3,
+    unlockLevel: 3,
+    upgradeCost: (l) => Math.round(900 * Math.pow(2.2, l - 1)),
+    jobs: () => 4,
+    standBoostPerWorker: (l) => 0.1 + 0.025 * (l - 1),
   },
   {
     id: 'tackleShop',
@@ -343,7 +412,7 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'baitShop',
     name: 'Bait Shop',
-    description: 'Sells Lucky Lures. Needs a shopkeeper.',
+    description: 'Sells bait and Lucky Lures. Needs a shopkeeper.',
     category: 'work',
     w: 2,
     h: 2,
@@ -386,6 +455,79 @@ const decor = (
   happiness: { amount, radius },
   unlockLevel,
 });
+
+// Services: they need staff but earn nothing directly; each worker helps the town another way.
+const service = (def: Omit<BuildingDef, 'category' | 'costGrowth' | 'jobs' | 'menuTab'> & { costGrowth?: number }): BuildingDef => ({
+  category: 'work',
+  costGrowth: 1,
+  jobs: () => 4,
+  menuTab: 'services',
+  ...def,
+});
+
+BUILDINGS.push(
+  service({
+    id: 'warehouse',
+    name: 'Warehouse',
+    description: 'Keeps you earning while away.',
+    w: 4,
+    h: 2,
+    wall: 0xb08968,
+    roof: 0x7f5539,
+    baseCost: 1_500,
+    maxCount: 1,
+    maxLevel: 3,
+    unlockLevel: 3,
+    upgradeCost: (l) => Math.round(2_000 * Math.pow(2, l - 1)),
+    offlineHoursPerWorker: (l) => 0.75 + 0.25 * l,
+  }),
+  service({
+    id: 'tavern',
+    name: 'Tavern',
+    description: 'Food, music and gossip. Cheers up homes nearby.',
+    w: 4,
+    h: 2,
+    wall: 0xe9c46a,
+    roof: 0x6a040f,
+    baseCost: 3_000,
+    costGrowth: 1.5,
+    maxCount: 3,
+    maxLevel: 3,
+    unlockLevel: 4,
+    upgradeCost: (l) => Math.round(2_500 * Math.pow(2, l - 1)),
+    moodPerWorker: { amount: (l) => 3 + l, radius: 5 },
+  }),
+  service({
+    id: 'netMaker',
+    name: 'Net Maker',
+    description: 'Your hook holds more fish.',
+    w: 4,
+    h: 2,
+    wall: 0x84a59d,
+    roof: 0x284b63,
+    baseCost: 8_000,
+    maxCount: 1,
+    maxLevel: 1,
+    unlockLevel: 5,
+    upgradeCost: () => 0,
+    hookPerWorker: 1,
+  }),
+  service({
+    id: 'lighthouse',
+    name: 'Lighthouse',
+    description: 'Its keepers run a fish sonar for your casts.',
+    w: 2,
+    h: 4,
+    wall: 0xf8f9fa,
+    roof: 0xd62828,
+    baseCost: 25_000,
+    maxCount: 1,
+    maxLevel: 3,
+    unlockLevel: 6,
+    upgradeCost: (l) => Math.round(20_000 * Math.pow(2, l - 1)),
+    sonarPerWorker: (l) => 5 + 5 * l,
+  }),
+);
 
 BUILDINGS.push(
   {
@@ -430,6 +572,7 @@ export const TOWN_LEVELS: TownLevel[] = [
   { cost: 1_500, residents: 6 },
   { cost: 6_000, residents: 12 },
   { cost: 20_000, residents: 24 },
+  { cost: 60_000, residents: 40 },
 ];
 export const MAX_TOWN_LEVEL = TOWN_LEVELS.length - 1;
 
