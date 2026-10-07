@@ -4,6 +4,7 @@ import {
   BUILDING_BY_ID,
   MAX_ROWS,
   ROWS_PER_EXPANSION,
+  SELL_REFUND,
   START_ROWS,
   TOWN_COLS,
   expansionCost,
@@ -56,7 +57,7 @@ export function placeBuilding(def: BuildingDef, col: number, row: number): Place
   const cost = buildCost(def);
   if (state.coins < cost || countOwned(def.id) >= def.maxCount || !canPlace(def, col, row)) return undefined;
   state.coins -= cost;
-  const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1 };
+  const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost };
   state.buildings.push(building);
   save();
   return building;
@@ -67,7 +68,37 @@ export function upgradeBuilding(b: PlacedBuilding): boolean {
   const cost = def.upgradeCost(b.level);
   if (b.level >= def.maxLevel || state.coins < cost) return false;
   state.coins -= cost;
+  b.spent = totalSpent(b) + cost;
   b.level++;
+  save();
+  return true;
+}
+
+/** What has gone into a building so far; estimated for buildings from saves before tracking. */
+function totalSpent(b: PlacedBuilding): number {
+  if (b.spent !== undefined) return b.spent;
+  const def = BUILDING_BY_ID[b.type];
+  let total = def.baseCost;
+  for (let l = 1; l < b.level; l++) total += def.upgradeCost(l);
+  return total;
+}
+
+export function sellValue(b: PlacedBuilding): number {
+  return Math.floor(totalSpent(b) * SELL_REFUND);
+}
+
+export function sellBuilding(b: PlacedBuilding): number {
+  const value = sellValue(b);
+  state.buildings = state.buildings.filter((other) => other !== b);
+  state.coins += value;
+  save();
+  return value;
+}
+
+export function moveBuilding(b: PlacedBuilding, col: number, row: number): boolean {
+  if (!canPlace(BUILDING_BY_ID[b.type], col, row, b)) return false;
+  b.col = col;
+  b.row = row;
   save();
   return true;
 }

@@ -174,6 +174,9 @@ export const ROWS_PER_EXPANSION = 2;
 export const MAX_ROWS = 40;
 export const expansionCost = (expansions: number) => Math.round(150 * Math.pow(1.9, expansions));
 
+/** Share of what you spent on a building that you get back when selling it. */
+export const SELL_REFUND = 0.5;
+
 /** Passive income keeps accruing while the game is closed, up to this long. */
 export const OFFLINE_CAP_HOURS = 4;
 

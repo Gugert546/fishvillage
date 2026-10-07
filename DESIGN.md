@@ -50,8 +50,9 @@ Offline earnings accrue while closed, capped (e.g. 4–8 h), cap raised by Harbo
 3. ~~Town scene: vertical grid, build mode, Fish Stand / Tackle Shop / Bait Shop, land expansion~~
 4. ~~Passive income + offline earnings (4 h cap)~~
 5. ~~Fishing upgrades sold by shops; shop level caps upgrade level~~
-6. Playtest & tune (`src/config.ts`), then content: Smokehouse, Aquarium, boats/new spots, quests, sound, art
-   - Open: move/sell buildings, bigger building sizes, crisp rendering on high-DPI screens
+6. ~~Move buildings (free) and sell them (50% refund of everything spent)~~
+7. Playtest & tune (`src/config.ts`), then content: Smokehouse, Aquarium, boats/new spots, quests, sound, art
+   - Open: bigger building sizes, crisp rendering on high-DPI screens
 
 ## Dev tips
 

@@ -71,11 +71,22 @@ export function makeButton(
   const bg = scene.add.rectangle(0, 0, w, h, color).setStrokeStyle(3, 0x000000, 0.25);
   const text = makeText(scene, 0, 0, label, fontSize).setOrigin(0.5);
   const c = scene.add.container(x, y, [bg, text]) as Button;
+  // Only fire when the press started on this button, so a button that appears under a
+  // finger mid-tap (e.g. in a freshly opened dialog) can't be triggered by the release.
+  let pressed = false;
   bg.setInteractive({ useHandCursor: true });
-  bg.on('pointerdown', () => bg.setScale(0.95));
-  bg.on('pointerout', () => bg.setScale(1));
+  bg.on('pointerdown', () => {
+    pressed = true;
+    bg.setScale(0.95);
+  });
+  bg.on('pointerout', () => {
+    pressed = false;
+    bg.setScale(1);
+  });
   bg.on('pointerup', () => {
     bg.setScale(1);
+    if (!pressed) return;
+    pressed = false;
     onClick();
   });
   c.setEnabledLook = (enabled, onColor = color) => bg.setFillStyle(enabled ? onColor : COLORS.disabled);

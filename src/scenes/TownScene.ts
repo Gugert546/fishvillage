@@ -22,8 +22,11 @@ import {
   canPlace,
   countOwned,
   expand,
+  moveBuilding,
   nextExpansionCost,
   placeBuilding,
+  sellBuilding,
+  sellValue,
   townRows,
   upgradeBuilding,
   upgradeLevelCap,
@@ -69,6 +72,8 @@ interface Ghost {
   row: number;
   view: Phaser.GameObjects.Container;
   outline: Phaser.GameObjects.Rectangle;
+  /** Set when relocating an existing building instead of buying a new one. */
+  moving?: PlacedBuilding;
 }
 
 /** World-space top-left of a footprint whose bottom-left tile is (col, row). */
@@ -408,14 +413,16 @@ export class TownScene extends Phaser.Scene {
     this.hint.setVisible(false);
   }
 
-  private enterBuildMode(def: BuildingDef): void {
-    const view = this.drawBuilding(def).setAlpha(0.75);
+  private enterBuildMode(def: BuildingDef, moving?: PlacedBuilding): void {
+    const view = this.drawBuilding(def, moving?.level).setAlpha(0.75);
     const outline = this.add.rectangle(0, 0, def.w * TILE, def.h * TILE).setOrigin(0).setStrokeStyle(3, 0xffffff);
     view.add(outline);
     view.setDepth(40);
-    this.ghost = { def, col: 0, row: 0, view, outline };
+    this.ghost = { def, col: 0, row: 0, view, outline, moving };
+    // Leave a faint copy where the building stands now.
+    if (moving) this.buildingViews.get(moving.id)?.setAlpha(0.3);
 
-    const spot = this.findFreeSpot(def);
+    const spot = moving ? { col: moving.col, row: moving.row } : this.findFreeSpot(def);
     this.moveGhost(spot.col, spot.row);
     const pos = tileToWorld(spot.col, spot.row, def.h);
     this.scrollTo(pos.y + (def.h * TILE) / 2 - GAME_HEIGHT / 2);
@@ -427,6 +434,8 @@ export class TownScene extends Phaser.Scene {
   }
 
   private exitBuildMode(): void {
+    const moving = this.ghost?.moving;
+    if (moving) this.buildingViews.get(moving.id)?.setAlpha(1);
     this.ghost?.view.destroy();
     this.ghost = undefined;
     this.normalBar.setVisible(true);
@@ -458,18 +467,25 @@ export class TownScene extends Phaser.Scene {
 
   private refreshGhost(): void {
     const g = this.ghost!;
-    const cost = buildCost(g.def);
-    const fits = canPlace(g.def, g.col, g.row);
+    const cost = g.moving ? 0 : buildCost(g.def);
+    const fits = canPlace(g.def, g.col, g.row, g.moving);
     const ok = fits && state.coins >= cost;
     g.outline.setStrokeStyle(3, fits ? 0x7cfc9a : 0xff5a5a).setFillStyle(fits ? 0x7cfc9a : 0xff5a5a, 0.25);
     this.placeButton.setEnabledLook(ok, COLORS.buy);
-    this.placeButton.setLabel(`Place $${formatCoins(cost)}`);
+    this.placeButton.setLabel(g.moving ? 'Move here' : `Place $${formatCoins(cost)}`);
     this.hint.setText(fits ? 'Tap or drag to choose a spot' : 'That spot is taken');
   }
 
   private confirmPlacement(): void {
     const g = this.ghost;
     if (!g) return;
+    if (g.moving) {
+      if (!moveBuilding(g.moving, g.col, g.row)) return;
+      const moved = g.moving;
+      this.exitBuildMode();
+      this.addBuildingView(moved);
+      return;
+    }
     const b = placeBuilding(g.def, g.col, g.row);
     if (!b) return;
     this.addBuildingView(b);
@@ -521,7 +537,7 @@ export class TownScene extends Phaser.Scene {
     const def = BUILDING_BY_ID[b.type];
     const sells = UPGRADES.filter((u) => u.shop === def.id);
     const hasIncome = def.income(b.level) > 0;
-    const m = (this.modal = new Modal(this, 240 + (hasIncome ? 40 : 0) + sells.length * 72));
+    const m = (this.modal = new Modal(this, 300 + (hasIncome ? 40 : 0) + sells.length * 72));
     const reopen = () => this.openBuildingPanel(b);
 
     m.text(GAME_WIDTH / 2, m.top + 32, `${def.name}  ·  Lv ${b.level}`, 24);
@@ -573,6 +589,43 @@ export class TownScene extends Phaser.Scene {
       y += 72;
     }
 
-    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral));
+    const actionsY = m.top + m.height - 92;
+    m.add(
+      makeButton(this, GAME_WIDTH * 0.3, actionsY, 160, 44, 'Move', () => {
+        this.closeModal();
+        this.enterBuildMode(def, b);
+      }, COLORS.primary, 20),
+      makeButton(this, GAME_WIDTH * 0.7, actionsY, 160, 44, `Sell $${formatCoins(sellValue(b))}`, () => this.confirmSell(b), COLORS.danger, 20),
+      makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral),
+    );
+  }
+
+  private confirmSell(b: PlacedBuilding): void {
+    this.closeModal();
+    const def = BUILDING_BY_ID[b.type];
+    const sellsGear = UPGRADES.some((u) => u.shop === def.id);
+    const value = sellValue(b);
+    const m = (this.modal = new Modal(this, sellsGear ? 250 : 220));
+
+    m.text(GAME_WIDTH / 2, m.top + 36, `Sell ${def.name}?`, 26);
+    m.text(GAME_WIDTH / 2, m.top + 80, `You get $${formatCoins(value)} back.`, 18).setColor(COLORS.gold);
+    if (sellsGear) m.text(GAME_WIDTH / 2, m.top + 112, 'Gear you already bought is kept.', 15).setAlpha(0.8);
+    const buttonsY = m.top + m.height - 44;
+    // Keep sits where the panel's Sell button was, so a double tap doesn't sell by accident.
+    m.add(
+      makeButton(this, GAME_WIDTH * 0.7, buttonsY, 150, 48, 'Keep', () => this.openBuildingPanel(b), COLORS.neutral),
+      makeButton(this, GAME_WIDTH * 0.3, buttonsY, 150, 48, 'Sell', () => {
+        this.closeModal();
+        const pos = tileToWorld(b.col, b.row, def.h);
+        sellBuilding(b);
+        this.buildingViews.get(b.id)?.destroy();
+        this.buildingViews.delete(b.id);
+        const pop = makeText(this, pos.x + (def.w * TILE) / 2, pos.y + (def.h * TILE) / 2, `+$${formatCoins(value)}`, 22)
+          .setOrigin(0.5)
+          .setDepth(50)
+          .setColor(COLORS.gold);
+        this.tweens.add({ targets: pop, y: pop.y - 50, alpha: 0, duration: 1200, onComplete: () => pop.destroy() });
+      }, COLORS.danger),
+    );
   }
 }

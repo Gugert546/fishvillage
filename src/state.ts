@@ -9,6 +9,8 @@ export interface PlacedBuilding {
   col: number;
   row: number;
   level: number;
+  /** Coins spent on building + upgrading it, for sell refunds. Missing in old saves. */
+  spent?: number;
 }
 
 export interface GameState {
