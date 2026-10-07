@@ -95,7 +95,11 @@ function load(): GameState {
 
 export const state: GameState = load();
 
+/** Set while wiping the save, so nothing (e.g. the hide-on-reload autosave) writes it back. */
+let resetting = false;
+
 export function save(): void {
+  if (resetting) return;
   state.lastSaved = Date.now();
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));
@@ -108,4 +112,15 @@ export function fishingStats(): FishingStats {
   const stats = { ...BASE_STATS };
   for (const def of UPGRADES) def.apply(stats, state.upgrades[def.id]);
   return stats;
+}
+
+/** Deletes the save and restarts the game from scratch. */
+export function resetGame(): void {
+  resetting = true;
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    // ignore
+  }
+  location.reload();
 }

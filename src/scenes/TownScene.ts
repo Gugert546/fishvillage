@@ -65,6 +65,7 @@ import {
   formatCoins,
   makeButton,
   makeText,
+  openSettings,
   showOfflineEarnings,
   type Button,
 } from '../ui';
@@ -199,7 +200,7 @@ export class TownScene extends Phaser.Scene {
     this.rebuildGround();
     this.refreshBuildingViews();
 
-    this.topBar = new TopBar(this);
+    this.topBar = new TopBar(this, true, () => this.openSettingsMenu());
     this.createBottomBars();
     this.setupInput();
 
@@ -950,6 +951,13 @@ export class TownScene extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------- Panels
+
+  private openSettingsMenu(): void {
+    if (this.ghost) this.exitBuildMode();
+    if (this.roadMode) this.exitRoadMode();
+    this.closeModal();
+    openSettings(this, (m) => (this.modal = m));
+  }
 
   private closeModal(): void {
     this.modal?.destroy();

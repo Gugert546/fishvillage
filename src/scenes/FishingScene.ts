@@ -16,7 +16,18 @@ import {
 import { fishingStats, save, state } from '../state';
 import { tickEconomy } from '../economy';
 import { makeTextures } from '../textures';
-import { COLORS, Modal, TopBar, UI_DEPTH, fixToScreen, lerpColor, makeButton, makeText, showOfflineEarnings } from '../ui';
+import {
+  COLORS,
+  Modal,
+  TopBar,
+  UI_DEPTH,
+  fixToScreen,
+  lerpColor,
+  makeButton,
+  makeText,
+  openSettings,
+  showOfflineEarnings,
+} from '../ui';
 
 type Phase = 'idle' | 'descending' | 'ascending' | 'results';
 
@@ -151,7 +162,9 @@ export class FishingScene extends Phaser.Scene {
     const hud = <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Depth>(obj: T): T =>
       fixToScreen(obj).setDepth(UI_DEPTH);
 
-    this.topBar = new TopBar(this, false);
+    this.topBar = new TopBar(this, false, () => {
+      if (this.phase === 'idle' && !this.modal) openSettings(this, (m) => (this.modal = m));
+    });
     this.depthText = this.topBar.right;
     this.hookText = hud(makeText(this, GAME_WIDTH / 2, 70, '', 18).setOrigin(0.5));
     this.promptText = hud(makeText(this, GAME_WIDTH / 2, SURFACE_Y + 130, 'Tap to cast', 30).setOrigin(0.5));
@@ -197,6 +210,7 @@ export class FishingScene extends Phaser.Scene {
 
     this.promptText.setVisible(true);
     this.townButton.setVisible(true);
+    this.topBar.setSettingsVisible(true);
     this.hookText.setText('');
     this.refreshHud();
   }
@@ -207,6 +221,7 @@ export class FishingScene extends Phaser.Scene {
     this.invulnerableUntil = 0;
     this.promptText.setVisible(false);
     this.townButton.setVisible(false);
+    this.topBar.setSettingsVisible(false);
   }
 
   private startAscent(): void {

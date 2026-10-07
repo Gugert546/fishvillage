@@ -45,6 +45,11 @@ export function tickEconomy(): void {
   }
 }
 
+/** Playtesting: pretend the game was closed for `seconds`. The next tick catches up as if offline. */
+export function skipTime(seconds: number): void {
+  lastTick -= seconds * 1000;
+}
+
 /** What happened while away since the last call, or null if nothing worth reporting. */
 export function takeOfflineReport(): { coins: number; residents: number } | null {
   const report = { coins: Math.floor(pendingOffline.coins), residents: pendingOffline.residents };

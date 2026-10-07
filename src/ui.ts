@@ -1,9 +1,9 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './config';
-import { incomePerSecond, takeOfflineReport } from './economy';
+import { incomePerSecond, skipTime, takeOfflineReport } from './economy';
 import { townHappiness } from './happiness';
 import { housingCapacity } from './population';
-import { state } from './state';
+import { resetGame, save, state } from './state';
 
 export const UI_DEPTH = 100;
 
@@ -139,17 +139,21 @@ export class TopBar {
   private face: Phaser.GameObjects.Graphics;
   private lastFace = '';
   private showPopulation: boolean;
+  private gear?: Phaser.GameObjects.Container;
+  /** Right edge for the readouts, left of the settings gear. */
+  private rightEdge: number;
   /** Free slot on the right for scene-specific info (e.g. line depth while fishing). */
   readonly right: Phaser.GameObjects.Text;
 
-  constructor(scene: Phaser.Scene, showPopulation = true) {
+  constructor(scene: Phaser.Scene, showPopulation = true, onSettings?: () => void) {
+    this.rightEdge = onSettings ? GAME_WIDTH - 46 : GAME_WIDTH - 14;
     this.personIcon = scene.add.graphics();
     this.personIcon.fillStyle(0xf1faee);
     this.personIcon.fillCircle(0, -6, 4.5);
     this.personIcon.fillRoundedRect(-6, 0, 12, 10, 4);
     this.face = scene.add.graphics();
     this.showPopulation = showPopulation;
-    const items = [
+    const items: (Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Depth)[] = [
       scene.add.rectangle(0, 0, GAME_WIDTH, 44, 0x000000, 0.35).setOrigin(0),
       scene.add.circle(22, 22, 10, 0xf5c542).setStrokeStyle(2, 0xb8860b),
       (this.coins = makeText(scene, 40, 22, '', 20).setOrigin(0, 0.5)),
@@ -158,8 +162,9 @@ export class TopBar {
       (this.population = makeText(scene, 0, 22, '', 18).setOrigin(0, 0.5)),
       this.face,
       (this.mood = makeText(scene, 0, 22, '', 18).setOrigin(0, 0.5)),
-      (this.right = makeText(scene, GAME_WIDTH - 14, 22, '', 18).setOrigin(1, 0.5)),
+      (this.right = makeText(scene, this.rightEdge, 22, '', 18).setOrigin(1, 0.5)),
     ];
+    if (onSettings) items.push((this.gear = makeGearButton(scene, GAME_WIDTH - 22, 22, onSettings)));
     for (const o of items) fixToScreen(o).setDepth(UI_DEPTH);
     for (const o of [this.personIcon, this.population, this.face, this.mood]) o.setVisible(showPopulation);
     this.update();
@@ -173,7 +178,7 @@ export class TopBar {
 
     if (!this.showPopulation) return;
     this.population.setText(`${state.residents.length}/${housingCapacity()}`);
-    this.population.setX(GAME_WIDTH - 14 - this.population.width);
+    this.population.setX(this.rightEdge - this.population.width);
     this.personIcon.setPosition(this.population.x - 12, 22);
 
     const h = townHappiness();
@@ -181,6 +186,11 @@ export class TopBar {
     this.mood.setX(this.personIcon.x - 22 - this.mood.width);
     this.face.setPosition(this.mood.x - 14, 22);
     this.drawFace(h);
+  }
+
+  /** Hide the gear while it shouldn't be used (e.g. mid-cast). */
+  setSettingsVisible(visible: boolean): void {
+    this.gear?.setVisible(visible);
   }
 
   /** Smiley whose mouth follows the mood: frown below 35%, flat to 65%, smile above. */
@@ -227,4 +237,99 @@ export function showOfflineEarnings(scene: Phaser.Scene, onClose: () => void): M
     }),
   );
   return m;
+}
+
+function makeGearButton(scene: Phaser.Scene, x: number, y: number, onClick: () => void): Phaser.GameObjects.Container {
+  const g = scene.add.graphics();
+  g.fillStyle(0xf1faee);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    g.fillCircle(Math.cos(a) * 8, Math.sin(a) * 8, 2.8);
+  }
+  g.fillCircle(0, 0, 7.5);
+  g.fillStyle(0x3a3a3a);
+  g.fillCircle(0, 0, 3);
+  // Generous invisible hit area so it's easy to tap.
+  const hit = scene.add.rectangle(0, 0, 42, 42, 0x000000, 0.001);
+  let pressed = false;
+  hit.setInteractive({ useHandCursor: true });
+  hit.on('pointerdown', () => {
+    pressed = true;
+    g.setScale(0.9);
+  });
+  hit.on('pointerout', () => {
+    pressed = false;
+    g.setScale(1);
+  });
+  hit.on('pointerup', () => {
+    g.setScale(1);
+    if (!pressed) return;
+    pressed = false;
+    onClick();
+  });
+  return scene.add.container(x, y, [hit, g]);
+}
+
+/**
+ * Settings dialog. `setModal` lets the owning scene track whichever dialog is open, since this
+ * swaps between the settings panel and the reset confirmation.
+ */
+export function openSettings(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void): void {
+  // Playtesting tools only exist in dev builds (npm run dev), never in a shipped game.
+  const cheats = import.meta.env.DEV;
+  const m = new Modal(scene, cheats ? 400 : 200);
+  setModal(m);
+  const close = () => {
+    m.destroy();
+    setModal(undefined);
+  };
+  m.text(GAME_WIDTH / 2, m.top + 34, 'Settings', 28);
+  let y = m.top + 90;
+
+  if (cheats) {
+    m.text(GAME_WIDTH / 2, y, 'Playtesting', 18).setColor(COLORS.gold);
+    y += 46;
+    const grants: [string, number][] = [['+$1k', 1_000], ['+$10k', 10_000], ['+$100k', 100_000]];
+    grants.forEach(([label, amount], i) => {
+      const btn = makeButton(scene, GAME_WIDTH / 2 + (i - 1) * 124, y, 112, 46, label, () => {
+        state.coins += amount;
+        save();
+      }, COLORS.buy, 18);
+      m.add(btn);
+    });
+    y += 60;
+    m.add(
+      makeButton(scene, GAME_WIDTH / 2, y, 236, 46, 'Skip 1 hour', () => {
+        skipTime(3600);
+        close();
+      }, COLORS.neutral, 18),
+    );
+    y += 72;
+  }
+
+  m.add(
+    makeButton(scene, GAME_WIDTH / 2, y, 236, 46, 'Reset game', () => {
+      m.destroy();
+      confirmReset(scene, setModal);
+    }, COLORS.danger, 18),
+    makeButton(scene, GAME_WIDTH / 2, m.top + m.height - 36, 160, 44, 'Close', close, COLORS.neutral),
+  );
+}
+
+function confirmReset(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void): void {
+  // Tall enough that its buttons sit below where the settings' Reset button was, so a quick
+  // double tap can't wipe the save.
+  const m = new Modal(scene, 340);
+  setModal(m);
+  m.text(GAME_WIDTH / 2, m.top + 40, 'Reset everything?', 26);
+  m.text(GAME_WIDTH / 2, m.top + 100, 'Your town, coins and gear', 17).setAlpha(0.85);
+  m.text(GAME_WIDTH / 2, m.top + 126, 'will be gone for good.', 17).setAlpha(0.85);
+  const y = m.top + m.height - 46;
+  m.add(
+    makeButton(scene, GAME_WIDTH * 0.3, y, 150, 48, 'Reset', () => resetGame(), COLORS.danger),
+    makeButton(scene, GAME_WIDTH * 0.7, y, 150, 48, 'Cancel', () => {
+      m.destroy();
+      openSettings(scene, setModal);
+    }, COLORS.neutral),
+  );
 }

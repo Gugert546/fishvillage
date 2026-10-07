@@ -72,4 +72,5 @@ Offline earnings accrue while closed, capped (e.g. 4–8 h), cap raised by Harbo
 
 ## Dev tips
 
+- Settings (gear, top-right) has Reset game; in dev builds it also has playtesting tools: +$1k/+$10k/+$100k and Skip 1 hour.
 - In dev builds the browser console has `fv.state` / `fv.save()` / `fv.game`, e.g. `fv.state.coins = 5000`.
