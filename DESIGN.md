@@ -65,7 +65,7 @@ Offline earnings accrue while closed, capped (e.g. 4–8 h), cap raised by Harbo
 5. ~~Fishing upgrades sold by shops; shop level caps upgrade level~~
 6. ~~Move buildings (free) and sell them (50% refund of everything spent)~~
 7. ~~Town life A: 14×14 grid (30px tiles), Cottage/Apartment, residents, jobs (auto + staff/priority), worker-based income, closed shops~~
-8. Town life B: happiness, decorations, roads, range preview, bonuses
+8. ~~Town life B: happiness (per resident, 50% neutral), decorations with area effect, road painting tool, range preview, income/move-in bonuses~~
 9. Town life C: walking villagers, building details
 10. Playtest & tune (`src/config.ts`), then content: Smokehouse, Aquarium, boats/new spots, quests, sound, art
    - Open: bigger building sizes, crisp rendering on high-DPI screens

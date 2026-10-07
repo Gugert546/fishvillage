@@ -187,6 +187,25 @@ export const MOVE_IN_SECONDS = 20;
 /** The very first resident of an empty town arrives quickly. */
 export const FIRST_MOVE_IN_SECONDS = 3;
 
+// --------------------------------------------------------------- Happiness
+// Each resident's happiness is 0–100: base + decor near home + road next to home ± job.
+// 50% is neutral; above it residents earn more and newcomers arrive faster.
+
+export const HAPPINESS = {
+  base: 40,
+  roadNextToHome: 10,
+  employed: 10,
+  unemployed: -10,
+  /** Income multiplier for a worker at 0% and 100% happiness (1.0 at 50%). */
+  incomeAtZero: 0.75,
+  incomeAtFull: 1.5,
+  /** Move-in speed multiplier at 0% and 100% happiness (1.0 at 50%). */
+  moveInAtZero: 0.5,
+  moveInAtFull: 1.5,
+  /** Workplace income bonus when next to a road. */
+  roadIncomeBonus: 0.1,
+};
+
 export const RESIDENT_NAMES = [
   'Ada', 'Bo', 'Cora', 'Dag', 'Elin', 'Finn', 'Greta', 'Hugo', 'Ida', 'Jon', 'Kari', 'Leif', 'Maja', 'Nils',
   'Olga', 'Per', 'Ragna', 'Siv', 'Tor', 'Ulla', 'Vera', 'Wilhelm', 'Yngve', 'Åse', 'Arne', 'Brit', 'Edvin',
@@ -196,8 +215,19 @@ export const RESIDENT_NAMES = [
 
 // ---------------------------------------------------------------- Buildings
 
-export type BuildingId = 'fishStand' | 'tackleShop' | 'baitShop' | 'cottage' | 'apartment';
-export type BuildingCategory = 'work' | 'housing';
+export type BuildingId =
+  | 'fishStand'
+  | 'tackleShop'
+  | 'baitShop'
+  | 'cottage'
+  | 'apartment'
+  | 'road'
+  | 'flowerBed'
+  | 'tree'
+  | 'bench'
+  | 'lampPost'
+  | 'fountain';
+export type BuildingCategory = 'work' | 'housing' | 'decor' | 'road';
 
 export interface BuildingDef {
   id: BuildingId;
@@ -222,6 +252,10 @@ export interface BuildingDef {
   incomePerWorker?: (level: number) => number;
   /** Housing: residents that fit at a given level. */
   housing?: (level: number) => number;
+  /** Decor: happiness added to homes within `radius` tiles of its edge. */
+  happiness?: { amount: number; radius: number };
+  /** Share of spent coins returned on sell; defaults to SELL_REFUND. */
+  refund?: number;
 }
 
 /** One extra job slot every second level: 1, 1, 2, 2, 3… */
@@ -312,5 +346,54 @@ export const BUILDINGS: BuildingDef[] = [
     incomePerWorker: (l) => 0.2 * l,
   },
 ];
+
+const decor = (
+  id: BuildingId,
+  name: string,
+  description: string,
+  cost: number,
+  amount: number,
+  radius: number,
+  size = 1,
+): BuildingDef => ({
+  id,
+  name,
+  description,
+  category: 'decor',
+  w: size,
+  h: size,
+  wall: 0,
+  roof: 0,
+  baseCost: cost,
+  costGrowth: 1,
+  maxCount: 200,
+  maxLevel: 1,
+  upgradeCost: () => 0,
+  happiness: { amount, radius },
+});
+
+BUILDINGS.push(
+  {
+    id: 'road',
+    name: 'Road',
+    description: 'Homes next to a road are happier; workplaces earn 10% more.',
+    category: 'road',
+    w: 1,
+    h: 1,
+    wall: 0,
+    roof: 0,
+    baseCost: 3,
+    costGrowth: 1,
+    maxCount: 2000,
+    maxLevel: 1,
+    upgradeCost: () => 0,
+    refund: 1,
+  },
+  decor('flowerBed', 'Flower Bed', 'A splash of colour.', 15, 6, 2),
+  decor('tree', 'Tree', 'Shade and birdsong.', 25, 5, 3),
+  decor('bench', 'Bench', 'A spot to sit and chat.', 30, 8, 2),
+  decor('lampPost', 'Lamp Post', 'Cosy light for evening walks.', 40, 6, 3),
+  decor('fountain', 'Fountain', 'The pride of the town square.', 250, 15, 4, 2),
+);
 
 export const BUILDING_BY_ID = Object.fromEntries(BUILDINGS.map((b) => [b.id, b])) as Record<BuildingId, BuildingDef>;

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './config';
 import { incomePerSecond, takeOfflineReport } from './economy';
+import { townHappiness } from './happiness';
 import { housingCapacity } from './population';
 import { state } from './state';
 
@@ -134,6 +135,10 @@ export class TopBar {
   private income: Phaser.GameObjects.Text;
   private population: Phaser.GameObjects.Text;
   private personIcon: Phaser.GameObjects.Graphics;
+  private mood: Phaser.GameObjects.Text;
+  private face: Phaser.GameObjects.Graphics;
+  private lastFace = '';
+  private showPopulation: boolean;
   /** Free slot on the right for scene-specific info (e.g. line depth while fishing). */
   readonly right: Phaser.GameObjects.Text;
 
@@ -142,6 +147,8 @@ export class TopBar {
     this.personIcon.fillStyle(0xf1faee);
     this.personIcon.fillCircle(0, -6, 4.5);
     this.personIcon.fillRoundedRect(-6, 0, 12, 10, 4);
+    this.face = scene.add.graphics();
+    this.showPopulation = showPopulation;
     const items = [
       scene.add.rectangle(0, 0, GAME_WIDTH, 44, 0x000000, 0.35).setOrigin(0),
       scene.add.circle(22, 22, 10, 0xf5c542).setStrokeStyle(2, 0xb8860b),
@@ -149,11 +156,12 @@ export class TopBar {
       (this.income = makeText(scene, 0, 24, '', 14).setOrigin(0, 0.5).setColor(COLORS.gold)),
       this.personIcon,
       (this.population = makeText(scene, 0, 22, '', 18).setOrigin(0, 0.5)),
+      this.face,
+      (this.mood = makeText(scene, 0, 22, '', 18).setOrigin(0, 0.5)),
       (this.right = makeText(scene, GAME_WIDTH - 14, 22, '', 18).setOrigin(1, 0.5)),
     ];
     for (const o of items) fixToScreen(o).setDepth(UI_DEPTH);
-    this.personIcon.setVisible(showPopulation);
-    this.population.setVisible(showPopulation);
+    for (const o of [this.personIcon, this.population, this.face, this.mood]) o.setVisible(showPopulation);
     this.update();
   }
 
@@ -163,9 +171,39 @@ export class TopBar {
     this.income.setX(this.coins.x + this.coins.width + 10);
     this.income.setText(ips > 0 ? `+${ips < 10 ? ips.toFixed(1) : Math.round(ips)}/s` : '');
 
+    if (!this.showPopulation) return;
     this.population.setText(`${state.residents.length}/${housingCapacity()}`);
     this.population.setX(GAME_WIDTH - 14 - this.population.width);
     this.personIcon.setPosition(this.population.x - 12, 22);
+
+    const h = townHappiness();
+    this.mood.setText(h === null ? '–' : `${Math.round(h)}%`);
+    this.mood.setX(this.personIcon.x - 22 - this.mood.width);
+    this.face.setPosition(this.mood.x - 14, 22);
+    this.drawFace(h);
+  }
+
+  /** Smiley whose mouth follows the mood: frown below 35%, flat to 65%, smile above. */
+  private drawFace(h: number | null): void {
+    const kind = h === null ? 'flat' : h < 35 ? 'sad' : h < 65 ? 'flat' : 'happy';
+    if (kind === this.lastFace) return;
+    this.lastFace = kind;
+    const g = this.face.clear();
+    const color = kind === 'happy' ? 0x8ee88e : kind === 'sad' ? 0xff8a8a : 0xffe066;
+    g.fillStyle(color);
+    g.fillCircle(0, 0, 10);
+    g.fillStyle(0x1d3557);
+    g.fillCircle(-3.5, -3, 1.6);
+    g.fillCircle(3.5, -3, 1.6);
+    g.lineStyle(2, 0x1d3557);
+    g.beginPath();
+    if (kind === 'happy') g.arc(0, 1, 5, 0.15 * Math.PI, 0.85 * Math.PI, false);
+    else if (kind === 'sad') g.arc(0, 8, 5, 1.2 * Math.PI, 1.8 * Math.PI, false);
+    else {
+      g.moveTo(-4, 4);
+      g.lineTo(4, 4);
+    }
+    g.strokePath();
   }
 }
 

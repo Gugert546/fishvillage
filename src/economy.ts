@@ -2,7 +2,8 @@
 // app is backgrounded or closed (up to OFFLINE_CAP_HOURS).
 
 import { OFFLINE_CAP_HOURS } from './config';
-import { defOf, tickPopulation, workerCounts } from './population';
+import { moveInMultiplier, totalIncome, townHappiness } from './happiness';
+import { tickPopulation } from './population';
 import { save, state, type Resident } from './state';
 
 /** Gaps longer than this count as "you were away" and get a welcome-back popup. */
@@ -15,11 +16,7 @@ let pendingOffline = { coins: 0, residents: 0 };
 let arrivals: Resident[] = [];
 
 export function incomePerSecond(): number {
-  const counts = workerCounts();
-  return state.buildings.reduce((sum, b) => {
-    const workers = counts.get(b.id) ?? 0;
-    return sum + workers * (defOf(b).incomePerWorker?.(b.level) ?? 0);
-  }, 0);
+  return totalIncome();
 }
 
 /** Call every frame from the active scene. */
@@ -32,7 +29,8 @@ export function tickEconomy(): void {
   // Pay out with the current workforce first, then let new residents arrive.
   const earned = incomePerSecond() * effective;
   state.coins += earned;
-  const arrived = tickPopulation(effective);
+  // Happier towns attract newcomers faster.
+  const arrived = tickPopulation(effective * moveInMultiplier(townHappiness() ?? 50));
 
   if (gapS > AWAY_THRESHOLD_S) {
     pendingOffline.coins += earned;

@@ -87,7 +87,7 @@ function totalSpent(b: PlacedBuilding): number {
 }
 
 export function sellValue(b: PlacedBuilding): number {
-  return Math.floor(totalSpent(b) * SELL_REFUND);
+  return Math.floor(totalSpent(b) * (BUILDING_BY_ID[b.type].refund ?? SELL_REFUND));
 }
 
 export function sellBuilding(b: PlacedBuilding): number {
