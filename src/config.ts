@@ -177,7 +177,7 @@ export const GRID_X = (GAME_WIDTH - TOWN_COLS * TILE) / 2;
 export const START_ROWS = 14;
 export const ROWS_PER_EXPANSION = 4;
 export const MAX_ROWS = 80;
-export const expansionCost = (expansions: number) => Math.round(150 * Math.pow(1.9, expansions));
+export const expansionCost = (expansions: number) => Math.round(10_000 * Math.pow(1.5, expansions));
 
 /** Share of what you spent on a building that you get back when selling it. */
 export const SELL_REFUND = 0.5;
@@ -253,7 +253,7 @@ export interface BuildingDef {
   upgradeCost: (level: number) => number;
   /** Workplaces: job slots at a given level. */
   jobs?: (level: number) => number;
-  /** Workplaces: coins per second each worker earns at a given level. */
+  /** Workplaces: coins per minute each worker earns at a given level. */
   incomePerWorker?: (level: number) => number;
   /** Housing: residents that fit at a given level. */
   housing?: (level: number) => number;
@@ -314,7 +314,7 @@ export const BUILDINGS: BuildingDef[] = [
     maxLevel: 10,
     upgradeCost: (l) => Math.round(40 * Math.pow(1.7, l)),
     jobs: slotsEveryOtherLevel,
-    incomePerWorker: (l) => 0.5 * Math.pow(1.15, l - 1),
+    incomePerWorker: (l) => 6 * Math.pow(1.15, l - 1),
   },
   {
     id: 'tackleShop',
@@ -331,7 +331,7 @@ export const BUILDINGS: BuildingDef[] = [
     maxLevel: 5,
     upgradeCost: (l) => Math.round(300 * Math.pow(2.5, l - 1)),
     jobs: slotsEveryOtherLevel,
-    incomePerWorker: (l) => 0.3 * l,
+    incomePerWorker: (l) => 4 * l,
   },
   {
     id: 'baitShop',
@@ -348,7 +348,7 @@ export const BUILDINGS: BuildingDef[] = [
     maxLevel: 3,
     upgradeCost: (l) => Math.round(400 * Math.pow(3, l - 1)),
     jobs: slotsEveryOtherLevel,
-    incomePerWorker: (l) => 0.2 * l,
+    incomePerWorker: (l) => 2.5 * l,
   },
 ];
 

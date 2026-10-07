@@ -41,6 +41,8 @@ Deeper zones (Shallows → Open Water → The Deep → Abyss) hold rarer, faster
 | Utility | Tackle Shop, Bait Shop, Boatyard | unlock fishing upgrades |
 | Booster | Lighthouse, Harbor, Aquarium | multipliers, new areas, collection rewards |
 
+All passive income is designed and shown **per minute** (a Lv1 Fish Stand worker earns $6/min); fishing is the main early income. Town expansions start at $10k (×1.5 each).
+
 Offline earnings accrue while closed, capped (e.g. 4–8 h), cap raised by Harbor/Warehouse.
 
 ## Town life (residents, jobs, happiness)

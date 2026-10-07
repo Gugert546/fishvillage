@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './config';
-import { incomePerSecond, skipTime, takeOfflineReport } from './economy';
+import { incomePerMinute, skipTime, takeOfflineReport } from './economy';
 import { townHappiness } from './happiness';
 import { housingCapacity } from './population';
 import { resetGame, save, state } from './state';
@@ -28,9 +28,16 @@ export function lerpColor(a: number, b: number, t: number): number {
 
 export function formatCoins(n: number): string {
   const v = Math.floor(n);
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
-  if (v >= 10_000) return `${(v / 1000).toFixed(v >= 100_000 ? 0 : 1)}k`;
+  // "10.0k" reads worse than "10k", so drop a trailing ".0".
+  const short = (x: number, digits: number) => x.toFixed(digits).replace(/\.0$/, '');
+  if (v >= 1_000_000) return `${short(v / 1_000_000, v >= 10_000_000 ? 0 : 1)}M`;
+  if (v >= 10_000) return `${short(v / 1000, v >= 100_000 ? 0 : 1)}k`;
   return `${v}`;
+}
+
+/** An income rate without the unit: one decimal below 10 (dropping ".0"), then like coins. */
+export function formatRate(v: number): string {
+  return v < 10 ? v.toFixed(1).replace(/\.0$/, '') : formatCoins(v);
 }
 
 /** Pin an object (and every child, for containers) to the screen so it ignores camera scroll. */
@@ -172,9 +179,9 @@ export class TopBar {
 
   update(): void {
     this.coins.setText(formatCoins(state.coins));
-    const ips = incomePerSecond();
+    const perMin = incomePerMinute();
     this.income.setX(this.coins.x + this.coins.width + 10);
-    this.income.setText(ips > 0 ? `+${ips < 10 ? ips.toFixed(1) : Math.round(ips)}/s` : '');
+    this.income.setText(perMin > 0 ? `+${formatRate(perMin)}/min` : '');
 
     if (!this.showPopulation) return;
     this.population.setText(`${state.residents.length}/${housingCapacity()}`);

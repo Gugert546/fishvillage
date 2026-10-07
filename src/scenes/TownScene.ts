@@ -63,6 +63,7 @@ import {
   UI_DEPTH,
   fixToScreen,
   formatCoins,
+  formatRate as fmtRate,
   makeButton,
   makeText,
   openSettings,
@@ -78,7 +79,8 @@ const DOCK = { x: GRID_X + 6 * TILE + 5, y: SHORE_H - 10, w: 50, h: 230 };
 const TOP_MARGIN = ROWS_PER_EXPANSION * TILE + 160;
 const BOTTOM_BAR_H = 90;
 const DRAG_THRESHOLD = 8;
-const INCOME_POP_MS = 4000;
+/** How often workplaces show a floating "+$" for what they earned since the last one. */
+const INCOME_POP_MS = 10_000;
 const STATUS_CHECK_MS = 500;
 const SMOKE_MS = 700;
 /** Distance from the screen edge (px) where painting roads scrolls the town. */
@@ -140,7 +142,6 @@ function worldToTile(x: number, y: number): { col: number; row: number } {
   return { col: Math.floor((x - GRID_X) / TILE), row: Math.floor(-y / TILE) };
 }
 
-const fmtRate = (v: number) => (v < 10 ? v.toFixed(1) : Math.round(v).toString());
 
 export class TownScene extends Phaser.Scene {
   private topBar!: TopBar;
@@ -228,6 +229,7 @@ export class TownScene extends Phaser.Scene {
     }
     if (this.ghost) this.refreshGhost();
     if (this.paint) this.autoScrollPaint(dt);
+    this.expandButton?.setEnabledLook(state.coins >= nextExpansionCost(), COLORS.buy);
   }
 
   // ------------------------------------------------------------- World
@@ -597,7 +599,7 @@ export class TownScene extends Phaser.Scene {
     if (this.modal) return;
     const moods = happinessByResident();
     for (const b of state.buildings) {
-      const amount = workplaceIncome(b, moods) * (INCOME_POP_MS / 1000);
+      const amount = (workplaceIncome(b, moods) / 60) * (INCOME_POP_MS / 1000);
       if (amount <= 0 || !this.isOnScreen(b)) continue;
       this.floatText(b, `+$${amount < 10 ? amount.toFixed(1) : formatCoins(amount)}`, 15, COLORS.gold);
     }
@@ -1009,7 +1011,7 @@ export class TownScene extends Phaser.Scene {
     m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral));
   }
 
-  /** Short stats line for the build menu, e.g. "1 job · $0.5/s each". */
+  /** Short stats line for the build menu, e.g. "1 job · $6/min each". */
   private buildSummary(def: BuildingDef): string {
     const size = `${def.w}×${def.h}`;
     if (def.housing) return `${size} · ${def.housing(1)} residents`;
@@ -1018,7 +1020,7 @@ export class TownScene extends Phaser.Scene {
     const jobs = def.jobs?.(1) ?? 0;
     const pay = def.incomePerWorker?.(1) ?? 0;
     const jobText = `${jobs} job${jobs === 1 ? '' : 's'}`;
-    return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/s each` : `${size} · ${jobText}`;
+    return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/min each` : `${size} · ${jobText}`;
   }
 
   private openBuildingPanel(b: PlacedBuilding): void {
@@ -1104,7 +1106,7 @@ export class TownScene extends Phaser.Scene {
         const mood = averageHappiness(workers, moods) ?? 50;
         const extras = [`mood ×${incomeMultiplier(mood).toFixed(2)}`];
         if (touchesRoad(b)) extras.push('road +10%');
-        status = perWorker > 0 ? `Earning $${fmtRate(workplaceIncome(b, moods))}/s (${extras.join(', ')})` : 'Open for business';
+        status = perWorker > 0 ? `Earning $${fmtRate(workplaceIncome(b, moods))}/min (${extras.join(', ')})` : 'Open for business';
       } else {
         color = '#ff8a8a';
         const closed = sells.length > 0 ? 'Closed: needs a shopkeeper. ' : 'No workers. ';
@@ -1180,7 +1182,7 @@ export class TownScene extends Phaser.Scene {
     if (def.incomePerWorker) {
       const now = def.incomePerWorker(b.level);
       const next = def.incomePerWorker(b.level + 1);
-      if (now > 0 && next > now) gains.push(`$${fmtRate(next)}/s per worker`);
+      if (now > 0 && next > now) gains.push(`$${fmtRate(next)}/min per worker`);
     }
     if (UPGRADES.some((u) => u.shop === def.id)) gains.push('better gear');
     return gains.join(', ');

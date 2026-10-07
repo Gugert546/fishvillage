@@ -98,7 +98,7 @@ function scale(happiness: number, atZero: number, atFull: number): number {
 export const incomeMultiplier = (h: number) => scale(h, HAPPINESS.incomeAtZero, HAPPINESS.incomeAtFull);
 export const moveInMultiplier = (h: number) => scale(h, HAPPINESS.moveInAtZero, HAPPINESS.moveInAtFull);
 
-/** Coins per second for one workplace, given its workers' moods and road access. */
+/** Coins per minute for one workplace, given its workers' moods and road access. */
 export function workplaceIncome(b: PlacedBuilding, byResident = happinessByResident(), roads = roadTiles()): number {
   const perWorker = defOf(b).incomePerWorker?.(b.level) ?? 0;
   if (perWorker === 0) return 0;
@@ -109,6 +109,7 @@ export function workplaceIncome(b: PlacedBuilding, byResident = happinessByResid
   return total * (touchesRoad(b, roads) ? 1 + HAPPINESS.roadIncomeBonus : 1);
 }
 
+/** Coins per minute for the whole town. */
 export function totalIncome(): number {
   const byResident = happinessByResident();
   const roads = roadTiles();

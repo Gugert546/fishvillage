@@ -15,7 +15,8 @@ let lastSave = Date.now();
 let pendingOffline = { coins: 0, residents: 0 };
 let arrivals: Resident[] = [];
 
-export function incomePerSecond(): number {
+/** Town income in coins per minute (the unit all income is designed and shown in). */
+export function incomePerMinute(): number {
   return totalIncome();
 }
 
@@ -27,7 +28,7 @@ export function tickEconomy(): void {
   const effective = Math.min(gapS, OFFLINE_CAP_HOURS * 3600);
 
   // Pay out with the current workforce first, then let new residents arrive.
-  const earned = incomePerSecond() * effective;
+  const earned = (incomePerMinute() / 60) * effective;
   state.coins += earned;
   // Happier towns attract newcomers faster.
   const arrived = tickPopulation(effective * moveInMultiplier(townHappiness() ?? 50));
