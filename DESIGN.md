@@ -62,7 +62,7 @@ Bought in packs of 5 at the Bait Shop (needs a shopkeeper); one is used per cast
 
 All passive income is designed and shown **per minute** (a Lv1 Fish Stand worker earns $6/min); fishing is the main early income. Town expansions start at $10k (×1.5 each).
 
-Offline earnings accrue while closed, capped (e.g. 4–8 h), cap raised by Harbor/Warehouse.
+Offline earnings accrue while closed at **half** the usual rate, capped (4 h, raised by the Warehouse, perks and the Railway).
 
 ## Your house & town level
 

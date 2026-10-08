@@ -344,6 +344,8 @@ export const SELL_REFUND = 0.5;
 
 /** Passive income keeps accruing while the game is closed, up to this long. */
 export const OFFLINE_CAP_HOURS = 4;
+/** While you're away the town earns at this share of its usual rate. */
+export const OFFLINE_RATE = 0.5;
 
 // --------------------------------------------------------------- Residents
 
