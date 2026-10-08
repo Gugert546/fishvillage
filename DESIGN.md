@@ -129,13 +129,20 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 | Deep Trench | Trawler | 6 | $300k | **Darkness**: you only see near the hook (Lighthouse sonar still tags fish) | winch adds +120 m line, Coelacanth |
 | Arctic Waters | Icebreaker | 6 | $1M | **Ice floes**: block the line on the way down (Lucky Lure doesn't help) | priciest fish, Ghost Fish |
 
+## Logbook, legendaries & the Aquarium
+
+- **Logbook** (button on the dock, or the Aquarium): one page per area. Caught species show with count and price; missing ones are silhouettes with their depth range. Finishing every regular species on a page makes that area's fish sell for **+10%**. New species are tagged NEW on the results screen.
+- **Legendary fish**, one per area (25% chance per cast to be in the water, if your line reaches): Old Barnacle (Harbor, $1.5k), Silver King (Open Sea, $4k), Coral Emperor (Reef, $5k), Lantern King (Trench, $10k), Frostfin (Arctic, $15k). They glow gold (even in the dark), can't be snagged on the way down, and dart away when the hook gets close — corner them on the way up.
+- **Trophies**: catching a legendary unlocks its Trophy decor (2×2, $1k, +12 mood within 4 tiles, one each).
+- **Aquarium** (Lv 3, 4×2, 2–4 jobs): $0.5/min per worker for every species in the logbook (+25% per level).
+
 ## Plans
 
 **Phase 1 — Boats & fishing areas** ✅ (see above). Balance after playtesting.
 
 **Phase 2 — Fishing gives what the town can't**
-- Fish logbook / Aquarium: first catch of each species fills the logbook; completing an area's page gives a permanent bonus.
-- One legendary fish per area: rare, hard to catch, shown as a trophy in town.
+- ~~Fish logbook / Aquarium~~ ✅
+- ~~One legendary fish per area, shown as a trophy in town~~ ✅
 - Fish as materials: late buildings/upgrades also need specific fish ("10 Tuna").
 
 **Phase 3 — Long-term goals & money sinks** (no prestige / resets)

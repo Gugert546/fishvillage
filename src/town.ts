@@ -23,6 +23,7 @@ import {
 import { assignJobs, evictFrom, housingOf, jobSlots, shopOpen, tickPopulation, totalJobs, workerCounts } from './population';
 import { questEvent } from './quests';
 import { isWorking, touchesWater, wateredTiles } from './water';
+import { discovered } from './logbook';
 import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
 
 export function townRows(): number {
@@ -246,6 +247,7 @@ export function townLevel(): number {
 }
 
 export function isUnlocked(def: BuildingDef): boolean {
+  if (def.trophy && !discovered(def.trophy)) return false;
   return townLevel() >= (def.unlockLevel ?? 1);
 }
 

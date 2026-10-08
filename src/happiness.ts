@@ -1,6 +1,7 @@
 // Happiness: how residents feel about where they live, and what that does for the town.
 
 import { HAPPINESS } from './config';
+import { speciesCount } from './logbook';
 import { defOf, tileGap, workerCounts } from './population';
 import { millBoost, tavernMood } from './services';
 import { isWorking, touchesWater, wateredTiles } from './water';
@@ -123,7 +124,7 @@ export function workplaceIncome(
   fillets = filletBoost(),
   wet = wateredTiles(),
 ): number {
-  const perWorker = defOf(b).incomePerWorker?.(b.level) ?? 0;
+  const perWorker = incomePerWorkerOf(b);
   if (perWorker === 0 || !isWorking(b, wet)) return 0;
   let total = 0;
   for (const r of state.residents) {
@@ -132,6 +133,13 @@ export function workplaceIncome(
   if (b.type === 'fishStand') total *= 1 + fillets;
   total *= 1 + millBoost(b, undefined, wet);
   return total * (touchesRoad(b, roads) ? 1 + HAPPINESS.roadIncomeBonus : 1);
+}
+
+/** Base coins per minute for one worker here, before mood and boosts (the Aquarium grows with the logbook). */
+export function incomePerWorkerOf(b: PlacedBuilding): number {
+  const def = defOf(b);
+  if (def.speciesIncomePerWorker) return def.speciesIncomePerWorker(b.level) * speciesCount();
+  return def.incomePerWorker?.(b.level) ?? 0;
 }
 
 /** Coins per minute for the whole town. */

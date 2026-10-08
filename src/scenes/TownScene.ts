@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   AREAS,
   BAITS,
+  FISH,
   BAIT_BY_ID,
   BUILDINGS,
   GAME_HEIGHT,
@@ -26,6 +27,7 @@ import {
   happinessByResident,
   homeMood,
   incomeMultiplier,
+  incomePerWorkerOf,
   touchesRoad,
   workplaceIncome,
 } from '../happiness';
@@ -48,6 +50,7 @@ import { state, type PlacedBuilding, type Resident } from '../state';
 import { makeTextures } from '../textures';
 import { Villagers, makePerson, makePlayer } from './Villagers';
 import { isWorking, touchesWater, wateredTiles } from '../water';
+import { speciesCount } from '../logbook';
 import { hookBonus, marketBonus, millBoost, offlineCapHours, sonarRange } from '../services';
 import {
   claimQuest,
@@ -101,6 +104,7 @@ import {
   makeButton,
   makeListRow,
   makeText,
+  openLogbook,
   openSettings,
   showOfflineEarnings,
   showToast,
@@ -124,6 +128,9 @@ const AUTOSCROLL_EDGE = 110;
 const AUTOSCROLL_SPEED = 420;
 
 type BuildTab = 'homes' | 'shops' | 'services' | 'decor';
+
+/** Workplaces that earn coins themselves (what the Water Mill boosts). */
+const earns = (def: BuildingDef) => !!(def.incomePerWorker || def.speciesIncomePerWorker);
 
 function tabOf(def: BuildingDef): BuildTab | undefined {
   if (def.category === 'housing') return 'homes';
@@ -434,6 +441,19 @@ export class TownScene extends Phaser.Scene {
       g.fillStyle(0xffd166);
       g.fillTriangle(pw / 2 + 1, -12, pw / 2 + 15, -7, pw / 2 + 1, -2);
 
+    } else if (def.id === 'aquarium') {
+      // A big glass tank across the front, with a few fish inside.
+      g.fillStyle(0x48cae4);
+      g.fillRect(10, ph - 30, pw - 20, 22);
+      g.fillStyle(0xffffff, 0.35);
+      g.fillRect(12, ph - 28, pw - 24, 4);
+      for (const [fx, fy, c] of [[24, ph - 18, 0xff7f2a], [52, ph - 22, 0xffd166], [80, ph - 15, 0x2a6fdb], [100, ph - 21, 0xff5d8f]]) {
+        g.fillStyle(c);
+        g.fillEllipse(fx, fy, 9, 5);
+        g.fillTriangle(fx - 4, fy, fx - 8, fy - 3, fx - 8, fy + 3);
+      }
+      g.fillStyle(0x3d5a80);
+      g.fillRect(pw / 2 - 3, eave - 2, 6, ph - eave - 30);
     } else if (def.id === 'warehouse') {
       // Wide barn doors and a stack of crates.
       g.fillStyle(0x6b4f3a);
@@ -628,6 +648,7 @@ export class TownScene extends Phaser.Scene {
   /** Decor with its little bit of life: glowing lamps, a bubbling fountain. */
   private decorView(def: BuildingDef, placed?: PlacedBuilding): Phaser.GameObjects.Container {
     if (def.id === 'mooredBoats') return this.boatView(placed);
+    if (def.trophy) return this.trophyView(def.trophy);
     const view = this.add.container(0, 0, [this.drawDecor(def)]);
     if (def.id === 'lampPost') {
       const glow = this.add.circle(TILE / 2, 8, 13, 0xffe066, 0.18);
@@ -642,6 +663,22 @@ export class TownScene extends Phaser.Scene {
       this.tweens.add({ targets: ripple, scale: 2.1, alpha: 0, duration: 1600, repeat: -1 });
     }
     return view;
+  }
+
+  /** A stone plinth with the legendary fish mounted on top, glinting. */
+  private trophyView(fishId: string): Phaser.GameObjects.Container {
+    const s = TILE * 2;
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.2).fillEllipse(s / 2, s - 6, s - 10, 12);
+    g.fillStyle(0x8d99ae).fillRect(12, s - 26, s - 24, 20);
+    g.fillStyle(0xadb5bd).fillRect(8, s - 30, s - 16, 6);
+    g.fillStyle(0xffd166).fillRect(s / 2 - 10, s - 18, 20, 5);
+    const type = FISH.find((f) => f.id === fishId)!;
+    const fish = this.add.image(s / 2, s - 44, `fish-${fishId}`).setScale(Math.min(1, (s - 8) / (type.width * 1.6)));
+    const shine = this.add.ellipse(s / 2, s - 44, fish.displayWidth + 12, fish.displayHeight + 12).setStrokeStyle(2, 0xffd166, 0.7);
+    this.tweens.add({ targets: shine, alpha: 0.2, duration: 900, yoyo: true, repeat: -1 });
+    this.tweens.add({ targets: fish, y: fish.y - 3, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    return this.add.container(0, 0, [g, shine, fish]);
   }
 
   /**
@@ -1177,7 +1214,7 @@ export class TownScene extends Phaser.Scene {
       this.rangeGfx.fillStyle(0x8ecae6, 0.13).fillRect(tl.x, tl.y, (c1 - c0) * TILE, (r1 - r0) * TILE);
       this.rangeGfx.lineStyle(2, 0x8ecae6, 0.7).strokeRect(tl.x, tl.y, (c1 - c0) * TILE, (r1 - r0) * TILE);
       for (const w of state.buildings) {
-        if (w !== g.moving && defOf(w).incomePerWorker && tileGap(probe, w) <= r) label(w, `+${mill.amount * 100}%/worker`, '#8ecae6');
+        if (w !== g.moving && earns(defOf(w)) && tileGap(probe, w) <= r) label(w, `+${mill.amount * 100}%/worker`, '#8ecae6');
       }
     }
     if (g.def.housing) {
@@ -1547,12 +1584,15 @@ export class TownScene extends Phaser.Scene {
         m.text(110, y + 38, 'Needs water (beside a canal)', 12, 0).setColor('#8ecae6');
       }
       const unlocked = isUnlocked(def);
+      // Trophies wait for their legendary fish rather than a house level.
+      const needsFish = !!def.trophy && !unlocked;
       if (!unlocked) {
         preview.setAlpha(0.35);
-        m.text(110, y + 38, `Unlocks at house level ${def.unlockLevel}`, 12, 0).setColor('#ffb4a2');
+        const why = needsFish ? `Catch the legendary ${FISH.find((f) => f.id === def.trophy)!.name}` : `Unlocks at house level ${def.unlockLevel}`;
+        m.text(110, y + 38, why, 12, 0).setColor('#ffb4a2');
       }
       const affordable = state.coins >= cost;
-      const label = !unlocked ? `Lv ${def.unlockLevel}` : maxed ? (def.maxCount === 1 ? 'Built' : 'Max') : `$${formatCoins(cost)}`;
+      const label = needsFish ? 'Catch' : !unlocked ? `Lv ${def.unlockLevel}` : maxed ? (def.maxCount === 1 ? 'Built' : 'Max') : `$${formatCoins(cost)}`;
       const btn = makeButton(this, GAME_WIDTH - 80, y, 100, 46, label, () => {
         if (!unlocked || maxed || !affordable) return;
         this.closeModal();
@@ -1585,6 +1625,7 @@ export class TownScene extends Phaser.Scene {
     if (def.dockPricePerWorker) return `${jobText} · +${Math.round(def.dockPricePerWorker(1) * 100)}% dock price each`;
     if (def.millPerWorker) return `${jobText} · +${def.millPerWorker.amount * 100}% nearby each`;
     if (def.id === 'boatyard') return `${jobText} · builds boats`;
+    if (def.speciesIncomePerWorker) return `${jobText} · $${fmtRate(def.speciesIncomePerWorker(1))}/min per species`;
     return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/min each` : `${size} · ${jobText}`;
   }
 
@@ -1608,7 +1649,7 @@ export class TownScene extends Phaser.Scene {
       (isDecor ? 70 : 0) +
       (upgradable ? 70 : 0) +
       sells.length * 66 +
-      (def.id === 'baitShop' || def.id === 'boatyard' ? 66 : 0) +
+      (def.id === 'baitShop' || def.id === 'boatyard' || def.id === 'aquarium' ? 66 : 0) +
       130;
     const m = (this.modal = new Modal(this, height));
     const reopen = () => this.openBuildingPanel(b);
@@ -1678,7 +1719,7 @@ export class TownScene extends Phaser.Scene {
       plus.setEnabledLook(target < slots, COLORS.neutral);
       m.add(minus, plus);
 
-      const perWorker = def.incomePerWorker?.(b.level) ?? 0;
+      const perWorker = incomePerWorkerOf(b);
       let status: string;
       let color: string = COLORS.gold;
       if (workers.length > 0) {
@@ -1755,6 +1796,18 @@ export class TownScene extends Phaser.Scene {
       m.text(40, y - 12, 'Bait', 18, 0);
       m.text(40, y + 14, owned > 0 ? `You have ${owned} bait` : 'Lures better fish', 14, 0).setAlpha(0.75);
       m.add(makeButton(this, right, y, 110, 46, 'Shop ›', () => this.openBaitStore(b), COLORS.primary, 18));
+      y += 66;
+    }
+
+    if (def.id === 'aquarium') {
+      m.text(40, y - 12, 'Logbook', 18, 0);
+      m.text(40, y + 14, `${speciesCount()} species on show`, 14, 0).setAlpha(0.75);
+      m.add(
+        makeButton(this, right, y, 110, 46, 'Open ›', () => {
+          this.closeModal();
+          openLogbook(this, (lm) => (this.modal = lm), 0, () => this.openBuildingPanel(b));
+        }, COLORS.primary, 18),
+      );
       y += 66;
     }
 
@@ -1917,7 +1970,7 @@ export class TownScene extends Phaser.Scene {
     if (def.sonarPerWorker) return `Sonar range: ${sonarRange()} m`;
     if (def.dockPricePerWorker) return `Your catch sells for +${Math.round(marketBonus() * 100)}% at the dock`;
     if (def.millPerWorker) {
-      const nearby = state.buildings.filter((x) => x !== b && defOf(x).incomePerWorker && tileGap(b, x) <= def.millPerWorker!.radius).length;
+      const nearby = state.buildings.filter((x) => x !== b && earns(defOf(x)) && tileGap(b, x) <= def.millPerWorker!.radius).length;
       return `+${Math.round(def.millPerWorker.amount * workers * 100)}% for ${nearby} workplace${nearby === 1 ? '' : 's'} within ${def.millPerWorker.radius} tiles`;
     }
     if (def.id === 'boatyard') {
@@ -1943,6 +1996,9 @@ export class TownScene extends Phaser.Scene {
       const now = def.incomePerWorker(b.level);
       const next = def.incomePerWorker(b.level + 1);
       if (now > 0 && next > now) gains.push(`$${fmtRate(next)}/min per worker`);
+    }
+    if (def.speciesIncomePerWorker) {
+      gains.push(`$${fmtRate(def.speciesIncomePerWorker(b.level + 1))} per species`);
     }
     if (def.standBoostPerWorker) {
       const pct = (l: number) => Math.round(def.standBoostPerWorker!(l) * 1000) / 10;

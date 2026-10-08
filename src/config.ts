@@ -43,6 +43,8 @@ export interface FishType {
   erratic?: boolean;
   /** Extra detail on the programmer art. */
   look?: 'bill' | 'stripes' | 'squid' | 'crab' | 'flat';
+  /** One per area: rare, slippery, and worth a trophy. Never spawns as a regular fish. */
+  legendary?: boolean;
 }
 
 export const FISH: FishType[] = [
@@ -76,7 +78,26 @@ export const FISH: FishType[] = [
   { id: 'halibut', name: 'Halibut', area: 'arctic', value: 180, minDepth: 100, maxDepth: 240, weight: 5, speed: [25, 45], width: 56, height: 18, color: 0x8a7f6a, look: 'flat' },
   { id: 'wolffish', name: 'Wolffish', area: 'arctic', value: 320, minDepth: 170, maxDepth: 280, weight: 3, speed: [40, 70], width: 52, height: 20, color: 0x5c6b78 },
   { id: 'ghostFish', name: 'Ghost Fish', area: 'arctic', value: 900, minDepth: 230, maxDepth: 280, weight: 1, speed: [50, 90], width: 40, height: 18, color: 0xe8f4ff, erratic: true },
+  // Legendaries, one per area
+  { id: 'oldBarnacle', name: 'Old Barnacle', area: 'harbor', value: 1500, minDepth: 150, maxDepth: 270, weight: 0, speed: [70, 100], width: 64, height: 30, color: 0x8d7b68, legendary: true, look: 'flat' },
+  { id: 'silverKing', name: 'Silver King', area: 'openSea', value: 4000, minDepth: 160, maxDepth: 270, weight: 0, speed: [150, 210], width: 76, height: 24, color: 0xdfe7ef, legendary: true, look: 'bill' },
+  { id: 'coralEmperor', name: 'Coral Emperor', area: 'reef', value: 5000, minDepth: 120, maxDepth: 210, weight: 0, speed: [90, 130], width: 54, height: 32, color: 0xff5d8f, legendary: true, look: 'stripes' },
+  { id: 'lanternKing', name: 'Lantern King', area: 'trench', value: 10000, minDepth: 300, maxDepth: 390, weight: 0, speed: [60, 90], width: 58, height: 36, color: 0x9b5de5, legendary: true, erratic: true },
+  { id: 'frostfin', name: 'Frostfin', area: 'arctic', value: 15000, minDepth: 200, maxDepth: 270, weight: 0, speed: [110, 160], width: 60, height: 24, color: 0xbde0fe, legendary: true },
 ];
+
+/** Legendary fish: how often one shows up and how it slips away from the hook. */
+export const LEGENDARY = {
+  /** Chance per cast that the area's legendary is in the water. */
+  chance: 0.25,
+  /** It notices the hook this close (px) and darts away. */
+  fleeRadius: 80,
+  fleeSpeed: 330,
+  fleeSeconds: 0.45,
+};
+
+/** Completing an area's logbook page (every regular species) makes fish there sell for this much more. */
+export const LOGBOOK_PAGE_BONUS = 0.1;
 
 // -------------------------------------------------------------- Fishing areas
 // The Harbor is free; every other area needs its own boat, bought at the Boatyard.
@@ -388,7 +409,13 @@ export type BuildingId =
   | 'tree'
   | 'bench'
   | 'lampPost'
-  | 'fountain';
+  | 'fountain'
+  | 'aquarium'
+  | 'trophyOldBarnacle'
+  | 'trophySilverKing'
+  | 'trophyCoralEmperor'
+  | 'trophyLanternKing'
+  | 'trophyFrostfin';
 /** `tile`: painted one-tile pieces (roads, canals) drawn as one connected layer. */
 export type BuildingCategory = 'player' | 'work' | 'housing' | 'decor' | 'tile';
 
@@ -441,6 +468,10 @@ export interface BuildingDef {
   dockPricePerWorker?: (level: number) => number;
   /** Water Mill: each worker makes earning workplaces within `radius` tiles earn this much more. */
   millPerWorker?: { amount: number; radius: number };
+  /** Aquarium: coins per minute each worker earns per species in your logbook. */
+  speciesIncomePerWorker?: (level: number) => number;
+  /** Trophy decor: only buildable once this (legendary) fish has been caught. */
+  trophy?: string;
 }
 
 /** One extra job slot every second level: 1, 1, 2, 2, 3… */
@@ -819,7 +850,39 @@ BUILDINGS.push(
   decor('bench', 'Bench', 'A spot to sit and chat.', 30, 8, 2, 1, 2),
   decor('lampPost', 'Lamp Post', 'Cosy light for evening walks.', 40, 6, 3, 1, 3),
   decor('fountain', 'Fountain', 'The pride of the town square.', 250, 15, 4, 2, 4),
+  // Trophies: one per legendary fish, unlocked by catching it.
+  ...(
+    [
+      ['trophyOldBarnacle', 'oldBarnacle'],
+      ['trophySilverKing', 'silverKing'],
+      ['trophyCoralEmperor', 'coralEmperor'],
+      ['trophyLanternKing', 'lanternKing'],
+      ['trophyFrostfin', 'frostfin'],
+    ] as [BuildingId, string][]
+  ).map(([id, fish]): BuildingDef => {
+    const name = FISH.find((f) => f.id === fish)!.name;
+    return { ...decor(id, `${name} Trophy`, `Your legendary catch, mounted for all to see.`, 1_000, 12, 4, 2), maxCount: 1, trophy: fish };
+  }),
 );
+
+BUILDINGS.push({
+  id: 'aquarium',
+  name: 'Aquarium',
+  description: 'Visitors pay to see every species in your logbook.',
+  category: 'work',
+  w: 4,
+  h: 2,
+  wall: 0xe0fbfc,
+  roof: 0x3d5a80,
+  baseCost: 2_500,
+  costGrowth: 1,
+  maxCount: 1,
+  maxLevel: 3,
+  unlockLevel: 3,
+  upgradeCost: (l) => Math.round(4_000 * Math.pow(2.5, l - 1)),
+  jobs: (l) => 1 + l,
+  speciesIncomePerWorker: (l) => 0.5 * Math.pow(1.25, l - 1),
+});
 
 // ------------------------------------------------------------------- Quests
 

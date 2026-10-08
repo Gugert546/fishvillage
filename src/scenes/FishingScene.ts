@@ -10,6 +10,8 @@ import {
   HOOK_RADIUS,
   HOOK_STEER_SPEED,
   HAZARD_INFO,
+  LEGENDARY,
+  LOGBOOK_PAGE_BONUS,
   PX_PER_M,
   STING_SECONDS,
   SURFACE_Y,
@@ -25,6 +27,7 @@ import { questEvent, takeQuestToasts } from '../quests';
 import { hookBonus, marketBonus, sonarRange } from '../services';
 import { boatUnlocked, consumeBait, currentArea, cycleBait, ownsArea, readyBait, sailTo, townLevel } from '../town';
 import { makeDarknessTexture, makeTextures } from '../textures';
+import { completePages, discovered, legendOf, logbookBonus } from '../logbook';
 import {
   COLORS,
   Modal,
@@ -36,6 +39,7 @@ import {
   makeText,
   onTap,
   formatCoins,
+  openLogbook,
   openSettings,
   showOfflineEarnings,
   showToast,
@@ -54,6 +58,9 @@ interface Fish {
   seed: number;
   /** Position in the dangling stack once caught. */
   hangOffset?: number;
+  /** Legendary fish dart away from the hook until this time (seconds). */
+  fleeUntil?: number;
+  baseSpeed?: number;
 }
 
 interface Hazard {
@@ -85,6 +92,9 @@ export class FishingScene extends Phaser.Scene {
   private stunnedUntil = 0;
   private darkness?: Phaser.GameObjects.Image;
   private areaButton!: Button;
+  private logbookButton!: Button;
+  /** Gold shimmer around legendary fish (drawn above the dark). */
+  private glowGfx!: Phaser.GameObjects.Graphics;
   /** Tap areas on the moored boats (only while on the dock). */
   private boatZones: Phaser.GameObjects.Zone[] = [];
 
@@ -143,6 +153,7 @@ export class FishingScene extends Phaser.Scene {
 
     this.line = this.add.graphics().setDepth(10);
     this.sonarGfx = this.add.graphics().setDepth(8);
+    this.glowGfx = this.add.graphics().setDepth(8);
     this.shieldRing = this.add.circle(0, 0, HOOK_RADIUS + 7).setStrokeStyle(2, 0xffe066, 0.9).setDepth(11);
     this.hook = this.add.image(0, 0, 'hook').setDepth(12);
 
@@ -352,6 +363,11 @@ export class FishingScene extends Phaser.Scene {
         this.refreshBaitButton();
       }, COLORS.primary, 18),
     );
+    this.logbookButton = hud(
+      makeButton(this, 62, 82, 104, 36, 'Logbook', () => {
+        if (this.phase === 'idle' && !this.modal) openLogbook(this, (m) => (this.modal = m), this.areaPage());
+      }, COLORS.neutral, 15),
+    );
     this.areaButton = hud(
       makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 184, 240, 46, '', () => this.openAreaPicker(), COLORS.neutral, 18),
     );
@@ -394,7 +410,13 @@ export class FishingScene extends Phaser.Scene {
     m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', close, COLORS.neutral));
   }
 
+  /** Logbook page for the current area. */
+  private areaPage(): number {
+    return AREAS.findIndex((a) => a.id === this.area.id);
+  }
+
   private refreshAreaButton(): void {
+    this.logbookButton.setVisible(this.phase === 'idle');
     const show = this.phase === 'idle' && (state.boats.length > 0 || townLevel() >= 5);
     this.areaButton.setVisible(show);
     this.areaButton.setLabel(`Spot: ${this.area.name}`);
@@ -508,6 +530,8 @@ export class FishingScene extends Phaser.Scene {
     this.targetX = null;
 
     const counts = new Map<FishType, number>();
+    const fresh = new Set(this.caught.filter((f) => !discovered(f.type.id)).map((f) => f.type));
+    const pagesBefore = completePages();
     let total = 0;
     for (const f of this.caught) {
       counts.set(f.type, (counts.get(f.type) ?? 0) + 1);
@@ -518,7 +542,16 @@ export class FishingScene extends Phaser.Scene {
     questEvent({ type: 'cast', fish: this.caught.map((f) => f.type.id), coins: total });
     save();
     this.refreshHud();
-    this.showResults(counts, total);
+    for (const t of fresh) {
+      if (t.legendary) {
+        showToast(this, `Legendary catch: ${t.name}!`);
+        showToast(this, 'A trophy is ready to build in town');
+      } else showToast(this, `New in the logbook: ${t.name}`);
+    }
+    for (const id of completePages()) {
+      if (!pagesBefore.has(id)) showToast(this, `Logbook page done: ${AREAS.find((a) => a.id === id)!.name} +${Math.round(LOGBOOK_PAGE_BONUS * 100)}%`);
+    }
+    this.showResults(counts, total, fresh);
   }
 
   // --------------------------------------------------------------- Fish
@@ -529,7 +562,8 @@ export class FishingScene extends Phaser.Scene {
 
   /** Sale price including your house's level bonus, the Fish Market and this cast's bait. */
   private priceOf(type: FishType): number {
-    return Math.round(type.value * (1 + this.houseBonus() + this.market + (this.activeBait?.sellBonus ?? 0)));
+    const bonus = this.houseBonus() + this.market + logbookBonus(type.area) + (this.activeBait?.sellBonus ?? 0);
+    return Math.round(type.value * (1 + bonus));
   }
 
   private spawnFish(): void {
@@ -550,10 +584,24 @@ export class FishingScene extends Phaser.Scene {
         this.fish.push({ type, sprite, x, y, vx, seed: Math.random() * 1000 });
       }
     }
+    this.maybeSpawnLegend();
+  }
+
+  /** Now and then the area's legendary fish is down there, if the line can reach it. */
+  private maybeSpawnLegend(): void {
+    const type = legendOf(this.area.id);
+    if (!type || Math.random() >= LEGENDARY.chance || type.minDepth > this.stats.lineLength) return;
+    const depth = Phaser.Math.Between(type.minDepth, Math.min(type.maxDepth, this.stats.lineLength - 5));
+    const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
+    const y = SURFACE_Y + depth * PX_PER_M;
+    const speed = Phaser.Math.Between(type.speed[0], type.speed[1]);
+    const vx = Math.random() < 0.5 ? -speed : speed;
+    const sprite = this.add.image(x, y, `fish-${type.id}`).setDepth(8).setFlipX(vx < 0);
+    this.fish.push({ type, sprite, x, y, vx, seed: Math.random() * 1000, baseSpeed: speed, fleeUntil: 0 });
   }
 
   private pickFishType(depth: number, bait?: BaitDef): FishType | undefined {
-    const options = FISH.filter((f) => f.area === this.area.id && depth >= f.minDepth && depth <= f.maxDepth);
+    const options = FISH.filter((f) => f.area === this.area.id && !f.legendary && depth >= f.minDepth && depth <= f.maxDepth);
     const weight = (f: FishType) => f.weight * (bait?.attract[f.id] ?? 1);
     let roll = Math.random() * options.reduce((sum, f) => sum + weight(f), 0);
     for (const f of options) {
@@ -631,7 +679,9 @@ export class FishingScene extends Phaser.Scene {
   }
 
   private updateFish(dt: number, t: number): void {
+    const casting = this.phase === 'descending' || this.phase === 'ascending';
     for (const f of this.fish) {
+      if (f.type.legendary) this.legendFlee(f, t, casting);
       f.x += f.vx * dt;
       const half = f.sprite.width / 2;
       if (f.x < half && f.vx < 0) f.vx = -f.vx;
@@ -641,8 +691,26 @@ export class FishingScene extends Phaser.Scene {
     }
   }
 
+  /** A legendary fish darts away when the hook comes close, then calms back down. */
+  private legendFlee(f: Fish, t: number, casting: boolean): void {
+    const speed = f.baseSpeed ?? Math.abs(f.vx);
+    if (t < (f.fleeUntil ?? 0)) return;
+    const near = casting && Math.abs(f.sprite.x - this.hookX) < LEGENDARY.fleeRadius && Math.abs(f.sprite.y - this.hookY) < LEGENDARY.fleeRadius * 0.6;
+    if (near) {
+      // Away from the hook, unless that's into a wall.
+      let dir = Math.sign(f.sprite.x - this.hookX) || 1;
+      if ((dir < 0 && f.x < 50) || (dir > 0 && f.x > GAME_WIDTH - 50)) dir = -dir;
+      f.vx = dir * LEGENDARY.fleeSpeed;
+      f.fleeUntil = t + LEGENDARY.fleeSeconds;
+    } else {
+      f.vx = Math.sign(f.vx || 1) * speed;
+    }
+  }
+
   private fishTouchingHook(): Fish | undefined {
     for (const f of this.fish) {
+      // Legendaries are too wary to bump into on the way down; you have to catch them going up.
+      if (f.type.legendary && this.phase === 'descending') continue;
       const dx = f.sprite.x - this.hookX;
       const dy = f.sprite.y - this.hookY;
       const rx = f.sprite.width / 2 + HOOK_RADIUS * 0.5;
@@ -720,6 +788,7 @@ export class FishingScene extends Phaser.Scene {
     this.drawLineAndHook(time);
     this.updateDarkness();
     this.drawSonar(time);
+    this.drawLegendGlow(time);
     this.refreshHud();
   }
 
@@ -763,6 +832,18 @@ export class FishingScene extends Phaser.Scene {
       const dy = h.sprite.y - this.hookY;
       if (Math.abs(dy) > rangePx || Math.abs(h.sprite.x - this.hookX) > h.sprite.width / 2 + 40) continue;
       g.lineStyle(3, 0xff5a5a, 0.4 + 0.5 * pulse).strokeEllipse(h.sprite.x, h.sprite.y, h.sprite.width + 16, h.sprite.height + 16);
+    }
+  }
+
+  private drawLegendGlow(time: number): void {
+    const g = this.glowGfx.clear();
+    const pulse = 0.5 + 0.5 * Math.sin(time / 200);
+    for (const f of [...this.fish, ...this.caught]) {
+      if (!f.type.legendary) continue;
+      const w = f.sprite.displayWidth;
+      const h = f.sprite.displayHeight;
+      g.fillStyle(0xffd166, 0.12 + 0.12 * pulse).fillEllipse(f.sprite.x, f.sprite.y, w + 30, h + 30);
+      g.lineStyle(2, 0xffd166, 0.5 + 0.4 * pulse).strokeEllipse(f.sprite.x, f.sprite.y, w + 14, h + 14);
     }
   }
 
@@ -828,11 +909,13 @@ export class FishingScene extends Phaser.Scene {
 
   // ----------------------------------------------------------------- UI
 
-  private showResults(counts: Map<FishType, number>, total: number): void {
+  private showResults(counts: Map<FishType, number>, total: number, fresh: Set<FishType>): void {
     const rows = Math.max(1, counts.size);
     const bonuses: string[] = [];
     if (this.houseBonus() > 0) bonuses.push(`house +${Math.round(this.houseBonus() * 100)}%`);
     if (this.market > 0) bonuses.push(`market +${Math.round(this.market * 100)}%`);
+    const logbook = logbookBonus(this.area.id);
+    if (logbook > 0) bonuses.push(`logbook +${Math.round(logbook * 100)}%`);
     if (this.activeBait) bonuses.push(`${this.activeBait.name.toLowerCase()} +${Math.round(this.activeBait.sellBonus * 100)}%`);
     const bonus = bonuses.length > 0;
     const m = (this.modal = new Modal(this, 200 + rows * 34 + (bonus ? 26 : 0)));
@@ -846,8 +929,11 @@ export class FishingScene extends Phaser.Scene {
     }
     if (counts.size === 0) m.text(GAME_WIDTH / 2, y, 'Steer into fish on the way up!', 18).setAlpha(0.8);
     for (const [type, n] of [...counts].sort((a, b) => b[0].value - a[0].value)) {
-      m.add(this.add.image(60, y, `fish-${type.id}`).setScale(0.8));
-      m.text(95, y, `${type.name} ×${n}`, 18, 0);
+      const img = this.add.image(60, y, `fish-${type.id}`);
+      m.add(img.setScale(Math.min(0.8, 56 / img.width)));
+      const name = m.text(95, y, `${type.name} ×${n}`, 18, 0);
+      if (type.legendary) name.setColor(COLORS.gold);
+      if (fresh.has(type)) m.text(95 + name.width + 8, y, 'NEW', 13, 0).setColor('#8ee88e');
       m.text(GAME_WIDTH - 50, y, `$${this.priceOf(type) * n}`, 18, 1);
       y += 34;
     }

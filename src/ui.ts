@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH } from './config';
+import { AREAS, GAME_HEIGHT, GAME_WIDTH, LOGBOOK_PAGE_BONUS, type FishType } from './config';
 import { incomePerMinute, skipTime, takeOfflineReport } from './economy';
 import { townHappiness } from './happiness';
+import { discovered, legendOf, pageComplete, pageProgress, regularFish, speciesCount, totalSpecies } from './logbook';
 import { housingCapacity } from './population';
 import { resetGame, save, state } from './state';
 
@@ -392,4 +393,66 @@ export function showToast(scene: Phaser.Scene, text: string): void {
   liveToasts.set(scene, [...live, toast]);
   scene.tweens.add({ targets: toast, y, alpha: 1, duration: 250, ease: 'Back.Out' });
   scene.tweens.add({ targets: toast, alpha: 0, delay: 2800, duration: 400, onComplete: () => toast.destroy() });
+}
+
+/**
+ * The logbook, one page per fishing area: species you've caught (with count and price) and
+ * silhouettes of the ones still missing, plus the area's legendary fish.
+ */
+export function openLogbook(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void, page = 0, onClose?: () => void): void {
+  const area = AREAS[(page + AREAS.length) % AREAS.length];
+  const cellH = 62;
+  const fish = regularFish(area.id);
+  const rows = Math.ceil(fish.length / 2);
+  const m = new Modal(scene, 330 + rows * cellH);
+  setModal(m);
+  const close = () => {
+    m.destroy();
+    setModal(undefined);
+    onClose?.();
+  };
+  const turn = (d: number) => {
+    m.destroy();
+    openLogbook(scene, setModal, page + d, onClose);
+  };
+
+  m.text(GAME_WIDTH / 2, m.top + 30, 'Logbook', 26);
+  const { found, total } = pageProgress(area.id);
+  m.text(GAME_WIDTH / 2, m.top + 70, `${area.name}  ${found}/${total}`, 18).setColor(found === total ? COLORS.gold : '#ffffff');
+  m.add(
+    makeButton(scene, 62, m.top + 70, 64, 40, '‹', () => turn(-1), COLORS.neutral, 22),
+    makeButton(scene, GAME_WIDTH - 62, m.top + 70, 64, 40, '›', () => turn(1), COLORS.neutral, 22),
+  );
+
+  /** One species: picture and name, or a silhouette and where it lives. */
+  const cell = (f: FishType, x: number, y: number, width: number) => {
+    const known = discovered(f.id);
+    const img = scene.add.image(x + 30, y, `fish-${f.id}`).setScale(Math.min(1, 52 / (f.width * 1.6)));
+    if (!known) img.setTint(0x0b1a2a).setTintMode(Phaser.TintModes.FILL).setAlpha(0.8);
+    m.add(img);
+    m.text(x + 62, y - 10, known ? f.name : '???', 15, 0).setAlpha(known ? 1 : 0.6);
+    const info = known ? `×${state.caught[f.id]} · $${f.value}` : `${f.minDepth}–${f.maxDepth} m`;
+    m.text(x + 62, y + 10, info, 12, 0).setAlpha(0.7).setWordWrapWidth(width - 66);
+  };
+
+  let y = m.top + 120;
+  fish.forEach((f, i) => cell(f, i % 2 === 0 ? 30 : GAME_WIDTH / 2, y + Math.floor(i / 2) * cellH, GAME_WIDTH / 2 - 30));
+  y += rows * cellH + 10;
+
+  const legend = legendOf(area.id);
+  if (legend) {
+    const caught = discovered(legend.id);
+    m.add(scene.add.rectangle(GAME_WIDTH / 2, y, GAME_WIDTH - 70, 60, 0xffd166, 0.12).setStrokeStyle(2, 0xffd166, 0.8));
+    cell(legend, 40, y, GAME_WIDTH - 80);
+    m.text(GAME_WIDTH - 50, y, caught ? 'Trophy unlocked!' : 'Legendary', 13, 1).setColor(COLORS.gold);
+    y += 50;
+  }
+
+  const bonus = Math.round(LOGBOOK_PAGE_BONUS * 100);
+  const done = pageComplete(area.id);
+  m.text(GAME_WIDTH / 2, y + 12, done ? `Page complete: fish here sell for +${bonus}%` : `Complete the page: fish here sell for +${bonus}%`, 14)
+    .setColor(done ? COLORS.gold : '#ffffff')
+    .setAlpha(done ? 1 : 0.75);
+  m.text(GAME_WIDTH / 2, y + 36, `Species found: ${speciesCount()}/${totalSpecies()}`, 13).setAlpha(0.6);
+  m.add(makeButton(scene, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', close, COLORS.neutral));
 }

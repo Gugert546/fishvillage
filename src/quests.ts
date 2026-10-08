@@ -46,7 +46,7 @@ const fishAsk = (f: FishType) => (f.value <= 3 ? 8 : f.value <= 6 ? 6 : f.value 
 const GENERATORS: Record<QuestKind, () => Draft | undefined> = {
   catchFish: () => {
     // Only fish in areas you can sail to, living comfortably within the line's reach.
-    const fish = pick(FISH.filter((f) => ownsArea(AREA_BY_ID[f.area]) && f.minDepth + 5 <= reach(f)));
+    const fish = pick(FISH.filter((f) => !f.legendary && ownsArea(AREA_BY_ID[f.area]) && f.minDepth + 5 <= reach(f)));
     if (!fish) return undefined;
     const amount = fishAsk(fish);
     return { kind: 'catchFish', target: fish.id, amount, coins: roundTo(amount * fish.value * 3 + 20, 5) };
