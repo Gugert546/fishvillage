@@ -2,6 +2,7 @@
 
 import { HAPPINESS } from './config';
 import { deliveryBoost } from './crates';
+import { landmarkBonus, perkBonus } from './perks';
 import { speciesCount } from './logbook';
 import { defOf, tileGap, workerCounts } from './population';
 import { millBoost, tavernMood } from './services';
@@ -14,7 +15,9 @@ export interface HomeMood {
   road: number;
   water: number;
   tavern: number;
-  /** base + decor + road + water + tavern, before the per-resident job modifier. */
+  /** Town-wide: Cheerful perk and the Harbor Gate. */
+  town: number;
+  /** base + decor + road + water + tavern + town, before the per-resident job modifier. */
   total: number;
 }
 
@@ -57,7 +60,8 @@ export function homeMood(home: PlacedBuilding, roads = roadTiles(), wet = watere
   }
   const road = touchesRoad(home, roads) ? HAPPINESS.roadNextToHome : 0;
   const water = touchesWater(home, wet) ? HAPPINESS.waterNextToHome : 0;
-  return { base: HAPPINESS.base, decor, road, water, tavern, total: HAPPINESS.base + decor + road + water + tavern };
+  const town = perkBonus('cheerful') + landmarkBonus('happiness');
+  return { base: HAPPINESS.base, decor, road, water, tavern, town, total: HAPPINESS.base + decor + road + water + tavern + town };
 }
 
 export function residentHappiness(r: Resident, mood: HomeMood): number {
@@ -76,7 +80,7 @@ export function happinessByResident(): Map<number, number> {
       const home = state.buildings.find((b) => b.id === r.home);
       mood = home
         ? homeMood(home, roads, wet)
-        : { base: HAPPINESS.base, decor: 0, road: 0, water: 0, tavern: 0, total: HAPPINESS.base };
+        : { base: HAPPINESS.base, decor: 0, road: 0, water: 0, tavern: 0, town: 0, total: HAPPINESS.base };
       moods.set(r.home, mood);
     }
     out.set(r.id, residentHappiness(r, mood));
@@ -134,6 +138,7 @@ export function workplaceIncome(
   if (b.type === 'fishStand') total *= 1 + fillets;
   total *= 1 + millBoost(b, undefined, wet);
   total *= 1 + deliveryBoost(b);
+  total *= townIncomeMultiplier();
   return total * (touchesRoad(b, roads) ? 1 + HAPPINESS.roadIncomeBonus : 1);
 }
 
@@ -142,6 +147,11 @@ export function incomePerWorkerOf(b: PlacedBuilding): number {
   const def = defOf(b);
   if (def.speciesIncomePerWorker) return def.speciesIncomePerWorker(b.level) * speciesCount();
   return def.incomePerWorker?.(b.level) ?? 0;
+}
+
+/** Town-wide income boost from perks and the Clock Tower. */
+export function townIncomeMultiplier(): number {
+  return 1 + perkBonus('shopkeeping') + perkBonus('prosperity') + landmarkBonus('income');
 }
 
 /** Coins per minute for the whole town. */

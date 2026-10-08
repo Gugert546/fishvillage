@@ -411,6 +411,12 @@ export type BuildingId =
   | 'lampPost'
   | 'fountain'
   | 'aquarium'
+  | 'cannery'
+  | 'exportDocks'
+  | 'statue'
+  | 'clockTower'
+  | 'grandLighthouse'
+  | 'harborGate'
   | 'icehouse'
   | 'trophyOldBarnacle'
   | 'trophySilverKing'
@@ -462,7 +468,7 @@ export interface BuildingDef {
   /** Lighthouse: metres of sonar range per worker. */
   sonarPerWorker?: (level: number) => number;
   /** Build menu tab for workplaces that aren't shops. */
-  menuTab?: 'services';
+  menuTab?: 'services' | 'special';
   /** Must be placed right beside a filled canal, and stops working if the water goes away. */
   needsWater?: boolean;
   /** Fish Market: extra sale price at the dock per worker (0.05 = +5%). */
@@ -475,6 +481,20 @@ export interface BuildingDef {
   trophy?: string;
   /** Icehouse: fish it can keep at a given level. */
   crateCapacity?: (level: number) => number;
+  /** Cannery: spare fish each worker cans per minute. */
+  cansPerWorker?: (level: number) => number;
+  /** Export Docks: cans each worker loads onto a trade ship. */
+  shipCansPerWorker?: (level: number) => number;
+  /** One-off monument with a town-wide bonus (and a perk point). */
+  landmark?: LandmarkEffect;
+}
+
+/** What a landmark does for the whole town. */
+export interface LandmarkEffect {
+  fishPrice?: number;
+  income?: number;
+  legendaryChance?: number;
+  happiness?: number;
 }
 
 /** One extra job slot every second level: 1, 1, 2, 2, 3… */
@@ -864,9 +884,74 @@ BUILDINGS.push(
     ] as [BuildingId, string][]
   ).map(([id, fish]): BuildingDef => {
     const name = FISH.find((f) => f.id === fish)!.name;
-    return { ...decor(id, `${name} Trophy`, `Your legendary catch, mounted for all to see.`, 1_000, 12, 4, 2), maxCount: 1, trophy: fish };
+    return { ...decor(id, `${name} Trophy`, `Your legendary catch, mounted for all to see.`, 1_000, 12, 4, 2), maxCount: 1, trophy: fish, menuTab: 'special' };
   }),
 );
+
+// Landmarks: one of each, very expensive, with a bonus for the whole town and a perk point.
+const landmark = (
+  id: BuildingId,
+  name: string,
+  description: string,
+  cost: number,
+  unlockLevel: number,
+  size: [number, number],
+  effect: LandmarkEffect,
+): BuildingDef => ({
+  ...decor(id, name, description, cost, 15, 6, 2, unlockLevel),
+  w: size[0],
+  h: size[1],
+  maxCount: 1,
+  refund: 0.5,
+  menuTab: 'special',
+  landmark: effect,
+});
+
+BUILDINGS.push(
+  landmark('statue', 'Fisher Statue', 'Honours the town founder. Fish sell for +10%.', 100_000, 7, [2, 2], { fishPrice: 0.1 }),
+  landmark('clockTower', 'Clock Tower', 'Keeps the town on time. +10% town income.', 300_000, 8, [2, 2], { income: 0.1 }),
+  landmark('grandLighthouse', 'Grand Lighthouse', 'Legendary fish show up 10% more often.', 800_000, 9, [2, 4], { legendaryChance: 0.1 }),
+  landmark('harborGate', 'Harbor Gate', 'A grand welcome. +8 happiness in every home.', 2_000_000, 10, [4, 2], { happiness: 8 }),
+);
+
+BUILDINGS.push({
+  id: 'cannery',
+  name: 'Cannery',
+  description: 'Cans spare fish from the Icehouse. Cans are worth 3× the fish.',
+  category: 'work',
+  w: 4,
+  h: 4,
+  wall: 0xadb5bd,
+  roof: 0x6c757d,
+  baseCost: 120_000,
+  costGrowth: 1,
+  maxCount: 1,
+  maxLevel: 3,
+  unlockLevel: 7,
+  upgradeCost: (l) => Math.round(150_000 * Math.pow(2, l - 1)),
+  jobs: (l) => 3 + l,
+  cansPerWorker: (l) => 0.5 + 0.25 * l,
+});
+
+BUILDINGS.push({
+  id: 'exportDocks',
+  name: 'Export Docks',
+  description: 'Trade ships call here and buy your canned fish.',
+  category: 'work',
+  w: 4,
+  h: 4,
+  wall: 0x8d6e63,
+  roof: 0x264653,
+  baseCost: 350_000,
+  costGrowth: 1,
+  maxCount: 1,
+  maxLevel: 3,
+  unlockLevel: 8,
+  needsWater: true,
+  upgradeCost: (l) => Math.round(400_000 * Math.pow(2, l - 1)),
+  jobs: () => 4,
+  shipCansPerWorker: (l) => 10 + 5 * l,
+});
 
 BUILDINGS.push({
   id: 'icehouse',
@@ -905,6 +990,75 @@ BUILDINGS.push({
   jobs: (l) => 1 + l,
   speciesIncomePerWorker: (l) => 0.5 * Math.pow(1.25, l - 1),
 });
+
+// --------------------------------------------------------------- Canning & trade
+
+export const TRADE = {
+  /** A can is worth this many times the fish it was made from. */
+  canValue: 3,
+  /** Cans that fit in storage before the Cannery stops. */
+  maxCans: 300,
+  /** Seconds between trade ships at the Export Docks. */
+  shipEverySeconds: 600,
+};
+
+// -------------------------------------------------------------------- Perks
+// Permanent upgrades, bought with perk points earned from milestones (never by resetting).
+
+export type PerkId =
+  | 'sharpHooks'
+  | 'quickReel'
+  | 'bigBucket'
+  | 'steadyHands'
+  | 'luckyCharm'
+  | 'shopkeeping'
+  | 'welcoming'
+  | 'cheerful'
+  | 'longNap'
+  | 'prosperity'
+  | 'coldStorage'
+  | 'haggler'
+  | 'busyDocks'
+  | 'exportDeals'
+  | 'bigContracts';
+export type PerkBranch = 'fishing' | 'town' | 'trade';
+
+export interface PerkDef {
+  id: PerkId;
+  name: string;
+  branch: PerkBranch;
+  /** Tier 2 needs 2 points spent in the branch, tier 3 needs 4. */
+  tier: 1 | 2 | 3;
+  maxRank: number;
+  /** Effect at a rank, e.g. "+10% fish price". */
+  describe: (rank: number) => string;
+  /** Size of the effect per rank. */
+  perRank: number;
+}
+
+export const PERKS: PerkDef[] = [
+  { id: 'sharpHooks', name: 'Sharp Hooks', branch: 'fishing', tier: 1, maxRank: 3, perRank: 0.05, describe: (r) => `Fish sell for +${r * 5}%` },
+  { id: 'quickReel', name: 'Quick Reel', branch: 'fishing', tier: 1, maxRank: 3, perRank: 0.1, describe: (r) => `Line moves ${r * 10}% faster` },
+  { id: 'bigBucket', name: 'Big Bucket', branch: 'fishing', tier: 2, maxRank: 2, perRank: 1, describe: (r) => `Hook carries +${r} fish` },
+  { id: 'steadyHands', name: 'Steady Hands', branch: 'fishing', tier: 2, maxRank: 2, perRank: 1, describe: (r) => `Dodge ${r} more hit${r === 1 ? '' : 's'} per cast` },
+  { id: 'luckyCharm', name: 'Lucky Charm', branch: 'fishing', tier: 3, maxRank: 2, perRank: 0.1, describe: (r) => `Legendaries show up +${r * 10}% more` },
+  { id: 'shopkeeping', name: 'Shopkeeping', branch: 'town', tier: 1, maxRank: 3, perRank: 0.05, describe: (r) => `Town income +${r * 5}%` },
+  { id: 'welcoming', name: 'Welcoming', branch: 'town', tier: 1, maxRank: 2, perRank: 0.25, describe: (r) => `Residents move in ${r * 25}% faster` },
+  { id: 'cheerful', name: 'Cheerful', branch: 'town', tier: 2, maxRank: 2, perRank: 3, describe: (r) => `+${r * 3} happiness in every home` },
+  { id: 'longNap', name: 'Long Nap', branch: 'town', tier: 2, maxRank: 2, perRank: 2, describe: (r) => `Earn ${r * 2}h longer while away` },
+  { id: 'prosperity', name: 'Prosperity', branch: 'town', tier: 3, maxRank: 1, perRank: 0.1, describe: () => 'Town income +10% more' },
+  { id: 'coldStorage', name: 'Cold Storage', branch: 'trade', tier: 1, maxRank: 3, perRank: 0.25, describe: (r) => `Icehouse holds +${r * 25}%` },
+  { id: 'haggler', name: 'Haggler', branch: 'trade', tier: 1, maxRank: 3, perRank: 0.1, describe: (r) => `Orders pay +${r * 10}%` },
+  { id: 'busyDocks', name: 'Busy Docks', branch: 'trade', tier: 2, maxRank: 2, perRank: 0.25, describe: (r) => `Orders and ships come ${r * 25}% sooner` },
+  { id: 'exportDeals', name: 'Export Deals', branch: 'trade', tier: 2, maxRank: 2, perRank: 0.15, describe: (r) => `Ships pay +${r * 15}% for cans` },
+  { id: 'bigContracts', name: 'Big Contracts', branch: 'trade', tier: 3, maxRank: 1, perRank: 1, describe: () => '+1 open order at a time' },
+];
+
+export const PERK_BY_ID = Object.fromEntries(PERKS.map((p) => [p.id, p])) as Record<PerkId, PerkDef>;
+/** Points spent in a branch before its tier 2 / tier 3 perks open up. */
+export const PERK_TIER_POINTS = [0, 0, 2, 4];
+/** A perk point for every this many species in the logbook. */
+export const SPECIES_PER_PERK_POINT = 10;
 
 // ------------------------------------------------------------------- Orders
 // Staffed shops ask for fish from the Icehouse. Each delivery makes that building earn more, for good.
@@ -971,6 +1125,11 @@ export const TOWN_LEVELS: TownLevel[] = [
   { cost: 6_000, residents: 12, fish: { fish: 'salmon', amount: 10 } },
   { cost: 20_000, residents: 24, fish: { fish: 'tuna', amount: 8 } },
   { cost: 60_000, residents: 40, fish: { fish: 'angler', amount: 5 } },
+  // Late game: each level needs fish from a boat area.
+  { cost: 150_000, residents: 50, fish: { fish: 'swordfish', amount: 8 } },
+  { cost: 400_000, residents: 60, fish: { fish: 'grouper', amount: 6 } },
+  { cost: 1_000_000, residents: 70, fish: { fish: 'giantSquid', amount: 4 } },
+  { cost: 2_500_000, residents: 80, fish: { fish: 'wolffish', amount: 3 } },
 ];
 export const MAX_TOWN_LEVEL = TOWN_LEVELS.length - 1;
 

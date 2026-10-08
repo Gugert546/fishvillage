@@ -142,6 +142,14 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 - **Orders** (Lv 3, on the Quests board's Orders tab): every 5 min a staffed earning workplace may ask for fish ("Fish Stand wants 8 Cod"), up to 3 at once. Delivering pays 1.5× the fish's value **and** gives that building **+5% income for good** (up to +50%). Orders can be dropped.
 - **Fish for upgrades**: upgrading any building to Lv 3 also takes fish from the Icehouse (8 of Cod / Salmon / Tuna / Anglerfish, rarer for later buildings), and house levels 4 / 5 / 6 need 10 Salmon / 8 Tuna / 5 Anglerfish.
 
+## Late game: town levels 7–10, canning & trade, landmarks, perks
+
+- **Town levels 7–10**: $150k / $400k / $1M / $2.5M, 50 / 60 / 70 / 80 residents, and fish from the boat areas: 8 Swordfish, 6 Grouper, 4 Giant Squid, 3 Wolffish.
+- **Cannery** (Lv 7, 4×4, 4–6 jobs): each worker cans 0.75–1.25 spare fish/min from the Icehouse (never fish promised to orders or the house). A can is worth 3× the fish; up to 300 cans wait for a ship.
+- **Export Docks** (Lv 8, waterside, 4 jobs): a trade ship calls every 10 min, takes 15–25 cans per worker and pays for them. The ship sails in past the pier.
+- **Landmarks** (Build → Special, one each, +15 mood within 6 tiles, +1 perk point): Fisher Statue (Lv 7, $100k, fish +10%), Clock Tower (Lv 8, $300k, income +10%), Grand Lighthouse (Lv 9, $800k, legendaries +10%), Harbor Gate (Lv 10, $2M, +8 happiness everywhere).
+- **Perk tree** (Perks button in your house): three branches — Fishing (Sharp Hooks, Quick Reel, Big Bucket, Steady Hands, Lucky Charm), Town (Shopkeeping, Welcoming, Cheerful, Long Nap, Prosperity), Trade (Cold Storage, Haggler, Busy Docks, Export Deals, Big Contracts). Tier 2 perks need 2 points in the branch, tier 3 need 4. Points (21 in all): logbook pages, legendaries, every 10 species, town levels 7+, landmarks. Reset is free.
+
 ## Plans
 
 **Phase 1 — Boats & fishing areas** ✅ (see above). Balance after playtesting.
@@ -151,7 +159,7 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 - ~~One legendary fish per area, shown as a trophy in town~~ ✅
 - ~~Fish as materials: Icehouse crates, orders, fish for upgrades~~ ✅
 
-**Phase 3 — Long-term goals & money sinks** (no prestige / resets)
+**Phase 3 — Long-term goals & money sinks** ✅ (no prestige / resets)
 - Town levels 7–10 with new buildings (Cannery, Export Docks: fish → goods → trade ships).
 - Landmarks: a few very expensive one-off monuments with town-wide bonuses.
 - **Perk tree**: perk points earned from logbook milestones, legendary fish, landmarks and new town levels; spent on permanent perks (sale price, reel speed, offline cap, move-in speed…).

@@ -1,6 +1,7 @@
 // Service buildings: staffed, but they help the town instead of earning coins.
 
 import { OFFLINE_CAP_HOURS } from './config';
+import { perkBonus } from './perks';
 import { defOf, tileGap, workerCounts } from './population';
 import { state, type PlacedBuilding } from './state';
 import { isWorking, wateredTiles } from './water';
@@ -34,7 +35,7 @@ export function millBoost(b: PlacedBuilding, counts = workerCounts(), wet = wate
 
 /** Hours of income that keep accruing while the game is closed. */
 export function offlineCapHours(): number {
-  return OFFLINE_CAP_HOURS + total((b) => defOf(b).offlineHoursPerWorker?.(b.level));
+  return OFFLINE_CAP_HOURS + perkBonus('longNap') + total((b) => defOf(b).offlineHoursPerWorker?.(b.level));
 }
 
 /** Extra fish the hook can carry, from Net Maker workers. */

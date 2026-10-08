@@ -3,6 +3,10 @@ import {
   AREAS,
   BAITS,
   FISH,
+  PERKS,
+  PERK_TIER_POINTS,
+  TRADE,
+  type PerkBranch,
   BAIT_BY_ID,
   BUILDINGS,
   GAME_HEIGHT,
@@ -52,6 +56,8 @@ import { makeTextures } from '../textures';
 import { Villagers, makePerson, makePlayer } from './Villagers';
 import { isWorking, touchesWater, wateredTiles } from '../water';
 import { speciesCount } from '../logbook';
+import { branchSpent, buyPerk, canBuyPerk, perkOpen, perkRank, pointSources, pointsEarned, pointsFree, resetPerks } from '../perks';
+import { canningRate, secondsToShip, shipCapacity, takeShipVisits } from '../trade';
 import {
   canDeliver,
   crateCapacity,
@@ -144,12 +150,13 @@ const SMOKE_MS = 700;
 const AUTOSCROLL_EDGE = 110;
 const AUTOSCROLL_SPEED = 420;
 
-type BuildTab = 'homes' | 'shops' | 'services' | 'decor';
+type BuildTab = 'homes' | 'shops' | 'services' | 'decor' | 'special';
 
 /** Workplaces that earn coins themselves (what the Water Mill boosts). */
 const earns = (def: BuildingDef) => !!(def.incomePerWorker || def.speciesIncomePerWorker);
 
 function tabOf(def: BuildingDef): BuildTab | undefined {
+  if (def.menuTab === 'special') return 'special';
   if (def.category === 'housing') return 'homes';
   if (def.category === 'tile' || def.category === 'decor') return 'decor';
   if (def.category === 'work') return def.menuTab ?? 'shops';
@@ -295,6 +302,7 @@ export class TownScene extends Phaser.Scene {
     this.topBar.update();
     this.showArrivals();
     for (const t of takeQuestToasts()) showToast(this, t);
+    for (const v of takeShipVisits()) this.sailShip(v.coins);
     this.refreshQuestButton();
     if (!this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined));
 
@@ -308,6 +316,36 @@ export class TownScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------- World
+
+  /** A trade ship sails in past the pier, unloads its coins, and heads back out to sea. */
+  private sailShip(coins: number): void {
+    const y = SHORE_H + 175;
+    const g = this.add.graphics();
+    g.fillStyle(0x264653).fillPoints(
+      [new Phaser.Math.Vector2(-60, -6), new Phaser.Math.Vector2(60, -6), new Phaser.Math.Vector2(48, 14), new Phaser.Math.Vector2(-52, 14)],
+      true,
+    );
+    g.fillStyle(0xe76f51).fillRect(-60, -6, 120, 4);
+    const boxes = [0xe63946, 0xf4a261, 0x2a9d8f, 0xe9c46a, 0x457b9d];
+    boxes.forEach((c, i) => g.fillStyle(c).fillRect(-46 + i * 16, -20, 14, 14));
+    g.fillStyle(0xf1faee).fillRect(30, -34, 22, 28);
+    g.fillStyle(0x1d3557).fillRect(33, -30, 16, 6);
+    g.fillStyle(0x333333).fillRect(38, -44, 6, 10);
+    const ship = this.add.container(GAME_WIDTH + 80, y, [g]).setDepth(5);
+    const stop = GAME_WIDTH * 0.72;
+    this.tweens.add({
+      targets: ship,
+      x: stop,
+      duration: 3500,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        const pop = makeText(this, stop, y - 50, `+$${formatCoins(coins)}`, 20).setOrigin(0.5).setColor(COLORS.gold).setDepth(6);
+        this.tweens.add({ targets: pop, y: pop.y - 40, alpha: 0, delay: 600, duration: 1400, onComplete: () => pop.destroy() });
+        this.tweens.add({ targets: ship, x: -100, delay: 2500, duration: 6000, ease: 'Sine.easeIn', onComplete: () => ship.destroy() });
+      },
+    });
+    this.tweens.add({ targets: g, y: 2, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+  }
 
   private topY(): number {
     return Math.min(-townRows() * TILE - TOP_MARGIN, WORLD_BOTTOM - GAME_HEIGHT);
@@ -458,6 +496,30 @@ export class TownScene extends Phaser.Scene {
       g.fillStyle(0xffd166);
       g.fillTriangle(pw / 2 + 1, -12, pw / 2 + 15, -7, pw / 2 + 1, -2);
 
+    } else if (def.id === 'cannery') {
+      // Factory: saw-tooth roofline, a tall chimney and a conveyor of cans.
+      g.fillStyle(0x495057);
+      g.fillRect(pw - 26, 0, 12, eave);
+      g.fillStyle(0xdee2e6);
+      for (let x = 16; x < pw - 36; x += 22) g.fillRect(x, eave + 10, 14, 12);
+      g.fillStyle(0x343a40);
+      g.fillRect(10, ph - 22, pw - 20, 5);
+      g.fillStyle(0xced4da);
+      for (let x = 14; x < pw - 14; x += 10) g.fillRect(x, ph - 30, 7, 8);
+    } else if (def.id === 'exportDocks') {
+      // Warehouse front with a crane and stacked shipping containers.
+      g.fillStyle(0x6b4f3a);
+      g.fillRect(14, ph - 34, 30, 28);
+      const boxes = [0xe63946, 0x2a9d8f, 0xe9c46a, 0x457b9d];
+      boxes.forEach((c, i) => {
+        g.fillStyle(c);
+        g.fillRect(52 + (i % 2) * 26, ph - 18 - Math.floor(i / 2) * 14, 24, 12);
+      });
+      g.lineStyle(3, 0xf4a261);
+      g.lineBetween(pw - 18, ph - 6, pw - 18, eave - 20);
+      g.lineBetween(pw - 18, eave - 20, pw - 60, eave - 20);
+      g.lineStyle(1, 0x222222);
+      g.lineBetween(pw - 56, eave - 20, pw - 56, eave + 10);
     } else if (def.id === 'icehouse') {
       // Thick insulated walls, a frosty door and ice blocks stacked outside.
       g.fillStyle(0x9ecae1);
@@ -794,6 +856,59 @@ export class TownScene extends Phaser.Scene {
         g.fillStyle(0xffe066);
         g.fillCircle(s / 2, 8, 5);
         break;
+      case 'statue': {
+        // Plinth with a fisher holding up a big catch.
+        g.fillStyle(0x000000, 0.2).fillEllipse(s, 2 * s - 6, 2 * s - 12, 12);
+        g.fillStyle(0x8d99ae).fillRect(12, 2 * s - 24, 2 * s - 24, 18);
+        g.fillStyle(0xadb5bd).fillRect(8, 2 * s - 28, 2 * s - 16, 6);
+        g.fillStyle(0xb08d57);
+        g.fillRect(s - 5, 2 * s - 52, 10, 24);
+        g.fillCircle(s, 2 * s - 58, 7);
+        g.fillRect(s + 4, 2 * s - 66, 4, 20);
+        g.fillEllipse(s + 14, 2 * s - 66, 20, 8);
+        break;
+      }
+      case 'clockTower': {
+        g.fillStyle(0x000000, 0.2).fillRect(10, 2 * s - 8, 2 * s - 14, 8);
+        g.fillStyle(0xc9ada7).fillRect(14, 4, 2 * s - 28, 2 * s - 8);
+        g.fillStyle(0x4a4e69).fillTriangle(10, 8, s, -18, 2 * s - 10, 8);
+        g.fillStyle(0xfefae0).fillCircle(s, 22, 11);
+        g.lineStyle(2, 0x222222);
+        g.lineBetween(s, 22, s, 14);
+        g.lineBetween(s, 22, s + 6, 22);
+        g.fillStyle(0x6b4f3a).fillRect(s - 6, 2 * s - 20, 12, 16);
+        break;
+      }
+      case 'grandLighthouse': {
+        // 2×4: tall striped tower with a big lamp.
+        const h = 4 * s;
+        g.fillStyle(0x000000, 0.2).fillEllipse(s, h - 6, 2 * s - 8, 12);
+        g.fillStyle(0x6c757d).fillRect(8, h - 22, 2 * s - 16, 18);
+        for (let i = 0; i < 5; i++) {
+          g.fillStyle(i % 2 === 0 ? 0xf8f9fa : 0xd62828);
+          g.fillRect(14 + i, 24 + i * 16, 2 * s - 28 - 2 * i, 16);
+        }
+        g.fillStyle(0x333333).fillRect(12, 10, 2 * s - 24, 14);
+        g.fillStyle(0xffe066).fillRect(16, 12, 2 * s - 32, 10);
+        g.fillStyle(0xd62828).fillTriangle(10, 10, s, -8, 2 * s - 10, 10);
+        break;
+      }
+      case 'harborGate': {
+        // 4×2: a stone arch with flags.
+        const w = 4 * s;
+        g.fillStyle(0x000000, 0.2).fillRect(6, 2 * s - 8, w - 12, 8);
+        g.fillStyle(0xadb5bd);
+        g.fillRect(8, 10, 22, 2 * s - 12);
+        g.fillRect(w - 30, 10, 22, 2 * s - 12);
+        g.fillRect(8, 6, w - 16, 16);
+        g.fillStyle(0x8d99ae).fillRect(8, 20, w - 16, 4);
+        g.fillStyle(0xffd166).fillRect(w / 2 - 22, 9, 44, 9);
+        for (const fx of [14, w - 20]) {
+          g.fillStyle(0x5c3a1e).fillRect(fx, -18, 2, 26);
+          g.fillStyle(0x1d3557).fillTriangle(fx + 2, -18, fx + 16, -13, fx + 2, -8);
+        }
+        break;
+      }
       case 'fountain': {
         const c = s; // 2×2 footprint: centre at one tile in
         g.fillStyle(0xadb5bd);
@@ -1671,10 +1786,16 @@ export class TownScene extends Phaser.Scene {
     const m = (this.modal = new Modal(this, 170 + defs.length * rowH + (pages > 1 ? 60 : 0)));
     m.text(GAME_WIDTH / 2, m.top + 30, 'Build', 26);
 
-    const tabs: [BuildTab, string][] = [['homes', 'Homes'], ['shops', 'Shops'], ['services', 'Services'], ['decor', 'Decor']];
+    const tabs: [BuildTab, string][] = [
+      ['homes', 'Homes'],
+      ['shops', 'Shops'],
+      ['services', 'Services'],
+      ['decor', 'Decor'],
+      ['special', 'Special'],
+    ];
     tabs.forEach(([id, label], i) => {
-      const x = GAME_WIDTH / 2 + (i - 1.5) * 100;
-      const btn = makeButton(this, x, m.top + 72, 94, 40, label, () => this.openBuildMenu(id), COLORS.primary, 15);
+      const x = GAME_WIDTH / 2 + (i - 2) * 80;
+      const btn = makeButton(this, x, m.top + 72, 76, 40, label, () => this.openBuildMenu(id), COLORS.primary, 13);
       btn.setEnabledLook(id === tab, COLORS.primary);
       m.add(btn);
     });
@@ -1729,6 +1850,7 @@ export class TownScene extends Phaser.Scene {
     const size = `${def.w}×${def.h}`;
     if (def.housing) return `${size} · ${def.housing(1)} residents`;
     if (def.category === 'tile') return `${size} · $${def.baseCost} per tile`;
+    if (def.landmark) return `${size} · landmark · +1 perk`;
     if (def.happiness) return `${size} · +${def.happiness.amount} mood · ${def.happiness.radius} tiles`;
     const jobs = def.jobs?.(1) ?? 0;
     const pay = def.incomePerWorker?.(1) ?? 0;
@@ -1744,6 +1866,8 @@ export class TownScene extends Phaser.Scene {
     if (def.millPerWorker) return `${jobText} · +${def.millPerWorker.amount * 100}% nearby each`;
     if (def.id === 'boatyard') return `${jobText} · builds boats`;
     if (def.crateCapacity) return `${size} · holds ${def.crateCapacity(1)} fish`;
+    if (def.cansPerWorker) return `${jobText} · ${def.cansPerWorker(1)} cans/min each`;
+    if (def.shipCansPerWorker) return `${jobText} · ships take ${def.shipCansPerWorker(1)} cans each`;
     if (def.speciesIncomePerWorker) return `${jobText} · $${fmtRate(def.speciesIncomePerWorker(1))}/min per species`;
     return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/min each` : `${size} · ${jobText}`;
   }
@@ -1799,6 +1923,7 @@ export class TownScene extends Phaser.Scene {
       const parts = [`base ${mood.base}`, `decor +${mood.decor}`, `road +${mood.road}`];
       if (mood.water > 0) parts.push(`water +${mood.water}`);
       if (mood.tavern > 0) parts.push(`tavern +${mood.tavern}`);
+      if (mood.town > 0) parts.push(`town +${mood.town}`);
       parts.push('job ±10');
       m.text(40, y + 26, parts.join(' · '), 14, 0).setAlpha(0.75);
       y += 74;
@@ -2093,13 +2218,69 @@ export class TownScene extends Phaser.Scene {
       m.text(GAME_WIDTH / 2, m.top + 176, 'Fully upgraded!', 18).setColor('#8ee88e');
     }
 
+    const free = pointsFree();
     m.add(
-      makeButton(this, GAME_WIDTH / 2, m.top + m.height - 92, 160, 44, 'Move', () => {
+      makeButton(this, GAME_WIDTH * 0.3, m.top + m.height - 92, 160, 44, 'Move', () => {
         this.closeModal();
         this.enterBuildMode(def, b);
       }, COLORS.primary, 20),
+      makeButton(this, GAME_WIDTH * 0.7, m.top + m.height - 92, 160, 44, free > 0 ? `Perks (${free})` : 'Perks', () => this.openPerks(), COLORS.buy, 20),
       makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral),
     );
+  }
+
+  /** The perk tree: one branch at a time, deeper perks open as you spend points in it. */
+  private openPerks(branch: PerkBranch = 'fishing'): void {
+    this.closeModal();
+    const perks = PERKS.filter((p) => p.branch === branch);
+    const rowH = 70;
+    const m = (this.modal = new Modal(this, 300 + perks.length * rowH));
+    const free = pointsFree();
+    m.text(GAME_WIDTH / 2, m.top + 30, 'Perks', 26);
+    m.text(GAME_WIDTH / 2, m.top + 60, `${free} point${free === 1 ? '' : 's'} to spend · ${pointsEarned()} earned`, 15).setColor(
+      free > 0 ? COLORS.gold : '#ffffff',
+    );
+    const branches: [PerkBranch, string][] = [['fishing', 'Fishing'], ['town', 'Town'], ['trade', 'Trade']];
+    branches.forEach(([id, label], i) => {
+      const btn = makeButton(this, GAME_WIDTH / 2 + (i - 1) * 124, m.top + 100, 116, 40, `${label} ${branchSpent(id)}`, () => this.openPerks(id), COLORS.primary, 16);
+      btn.setEnabledLook(id === branch, COLORS.primary);
+      m.add(btn);
+    });
+
+    let y = m.top + 160;
+    for (const p of perks) {
+      const rank = perkRank(p.id);
+      const open = perkOpen(p);
+      const pips = '●'.repeat(rank) + '○'.repeat(p.maxRank - rank);
+      m.text(40, y - 16, `${p.name}  ${pips}`, 17, 0).setAlpha(open ? 1 : 0.5);
+      const now = rank > 0 ? p.describe(rank) : 'Not learned yet';
+      const next = rank < p.maxRank ? ` → ${p.describe(rank + 1)}` : '';
+      const info = open ? `${rank > 0 ? now : ''}${rank > 0 ? next : p.describe(1)}` : `Needs ${PERK_TIER_POINTS[p.tier]} points in this branch`;
+      m.text(40, y + 8, info, 13, 0)
+        .setColor(open ? COLORS.gold : '#ffb4a2')
+        .setWordWrapWidth(GAME_WIDTH - 180);
+      if (rank < p.maxRank) {
+        const btn = makeButton(this, GAME_WIDTH - 76, y, 84, 40, '+1', () => {
+          if (buyPerk(p)) this.openPerks(branch);
+        }, COLORS.buy, 18);
+        btn.setEnabledLook(canBuyPerk(p), COLORS.buy);
+        m.add(btn);
+      } else {
+        m.text(GAME_WIDTH - 76, y, 'Max', 16).setColor('#8ee88e');
+      }
+      y += rowH;
+    }
+
+    const sources = pointSources()
+      .map((src) => `${src.label} ${src.points}/${src.max}`)
+      .join(' · ');
+    m.text(GAME_WIDTH / 2, y + 4, `Points from: ${sources}`, 12).setAlpha(0.65).setAlign('center').setWordWrapWidth(GAME_WIDTH - 80);
+    const reset = makeButton(this, GAME_WIDTH * 0.3, m.top + m.height - 34, 150, 44, 'Reset perks', () => {
+      resetPerks();
+      this.openPerks(branch);
+    }, COLORS.danger, 17);
+    reset.setEnabledLook(pointsEarned() - free > 0, COLORS.danger);
+    m.add(reset, makeButton(this, GAME_WIDTH * 0.7, m.top + m.height - 34, 150, 44, 'Close', () => this.closeModal(), COLORS.neutral));
   }
 
   /** What a staffed service building is doing for the town right now, or undefined. */
@@ -2116,6 +2297,14 @@ export class TownScene extends Phaser.Scene {
     if (def.millPerWorker) {
       const nearby = state.buildings.filter((x) => x !== b && earns(defOf(x)) && tileGap(b, x) <= def.millPerWorker!.radius).length;
       return `+${Math.round(def.millPerWorker.amount * workers * 100)}% for ${nearby} workplace${nearby === 1 ? '' : 's'} within ${def.millPerWorker.radius} tiles`;
+    }
+    if (def.cansPerWorker) {
+      const rate = canningRate();
+      return `${state.cans}/${TRADE.maxCans} cans ($${formatCoins(state.cansValue)}) · ${fmtRate(rate)}/min from spare fish on ice`;
+    }
+    if (def.shipCansPerWorker) {
+      const t = Math.ceil(secondsToShip());
+      return `Next ship in ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}, takes up to ${shipCapacity()} cans (${state.cans} ready)`;
     }
     if (def.id === 'boatyard') {
       const next = AREAS.find((a) => a.boat && !ownsArea(a));

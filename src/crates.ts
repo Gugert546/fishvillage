@@ -16,6 +16,7 @@ import { queueToast } from './quests';
 import { fishingStats, save, state, type Order, type PlacedBuilding } from './state';
 import { ownsArea, townLevel } from './town';
 import { isWorking, wateredTiles } from './water';
+import { perkBonus } from './perks';
 
 const fishById = (id: string): FishType => FISH.find((f) => f.id === id)!;
 export const fishName = (id: string): string => fishById(id).name;
@@ -25,7 +26,8 @@ export const fishName = (id: string): string => fishById(id).name;
 /** How many fish the Icehouse holds (0 without one). */
 export function crateCapacity(): number {
   const house = state.buildings.find((b) => b.type === 'icehouse');
-  return house ? (BUILDING_BY_ID.icehouse.crateCapacity?.(house.level) ?? 0) : 0;
+  const base = house ? (BUILDING_BY_ID.icehouse.crateCapacity?.(house.level) ?? 0) : 0;
+  return Math.floor(base * (1 + perkBonus('coldStorage')));
 }
 
 export function cratesUsed(): number {
@@ -94,13 +96,18 @@ export function deliveryBoost(b: PlacedBuilding): number {
   return Math.min(ORDERS.maxBoost, (b.deliveries ?? 0) * ORDERS.boostPerDelivery);
 }
 
-/** How many of a fish open orders and the next house level still need beyond what's on ice. */
-export function wantedFish(fish: string): number {
+/** How many of a fish open orders and the next house level ask for (kept back from the Cannery). */
+export function reservedFish(fish: string): number {
   let want = state.orders.filter((o) => o.fish === fish).reduce((sum, o) => sum + o.amount, 0);
   const house = state.buildings.find((b) => b.type === 'playerHouse');
   const houseNeed = house && upgradeNeed(house);
   if (houseNeed?.fish === fish) want += houseNeed.amount;
-  return Math.max(0, want - onIce(fish));
+  return want;
+}
+
+/** How many of a fish are still needed beyond what's on ice. */
+export function wantedFish(fish: string): number {
+  return Math.max(0, reservedFish(fish) - onIce(fish));
 }
 
 /** Big asks for cheap fish, small ones for pricey fish. */
@@ -120,20 +127,22 @@ function newOrder(): Order | undefined {
   const b = shops[Math.floor(Math.random() * shops.length)];
   const f = fish[Math.floor(Math.random() * fish.length)];
   const amount = orderAmount(f);
-  return { id: state.nextOrderId++, building: b.id, fish: f.id, amount, coins: Math.round(f.value * amount * ORDERS.payMultiplier) };
+  return { id: state.nextOrderId++, building: b.id, fish: f.id, amount, coins: Math.round(f.value * amount * ORDERS.payMultiplier * (1 + perkBonus('haggler'))) };
 }
 
 /** Drops orders from buildings that are gone, and posts new ones over time. */
 export function tickOrders(seconds: number): void {
   const ids = new Set(state.buildings.map((b) => b.id));
   state.orders = state.orders.filter((o) => ids.has(o.building));
-  if (!ordersUnlocked() || state.orders.length >= ORDERS.max) {
+  const max = ORDERS.max + perkBonus('bigContracts');
+  const every = ORDERS.everySeconds / (1 + perkBonus('busyDocks'));
+  if (!ordersUnlocked() || state.orders.length >= max) {
     state.orderTimer = 0;
     return;
   }
   state.orderTimer += seconds;
-  while (state.orderTimer >= ORDERS.everySeconds && state.orders.length < ORDERS.max) {
-    state.orderTimer -= ORDERS.everySeconds;
+  while (state.orderTimer >= every && state.orders.length < max) {
+    state.orderTimer -= every;
     const order = newOrder();
     if (!order) break;
     state.orders.push(order);

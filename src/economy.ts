@@ -3,6 +3,8 @@
 
 import { moveInMultiplier, totalIncome, townHappiness } from './happiness';
 import { tickOrders } from './crates';
+import { checkPerkPoints, perkBonus } from './perks';
+import { tickTrade } from './trade';
 import { tickPopulation } from './population';
 import { checkQuests } from './quests';
 import { offlineCapHours } from './services';
@@ -35,8 +37,9 @@ export function tickEconomy(): void {
   const earned = (incomePerMinute() / 60) * effective;
   state.coins += earned;
   // Happier towns attract newcomers faster.
-  const arrived = tickPopulation(effective * moveInMultiplier(townHappiness() ?? 50));
+  const arrived = tickPopulation(effective * moveInMultiplier(townHappiness() ?? 50) * (1 + perkBonus('welcoming')));
   tickOrders(effective);
+  tickTrade(effective);
 
   if (gapS > AWAY_THRESHOLD_S) {
     pendingOffline.coins += earned;
@@ -47,6 +50,7 @@ export function tickEconomy(): void {
 
   if (now - lastQuestCheck > QUEST_CHECK_MS) {
     checkQuests();
+    checkPerkPoints();
     lastQuestCheck = now;
   }
 

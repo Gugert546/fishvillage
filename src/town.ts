@@ -104,6 +104,7 @@ export function placeBuilding(def: BuildingDef, col: number, row: number): Place
   state.coins -= cost;
   const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost };
   state.buildings.push(building);
+  if (def.landmark && !state.landmarks.includes(def.id)) state.landmarks.push(def.id);
   assignJobs();
   questEvent({ type: 'placed', building: def.id });
   save();

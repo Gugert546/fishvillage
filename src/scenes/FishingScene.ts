@@ -29,6 +29,7 @@ import { boatUnlocked, consumeBait, currentArea, cycleBait, ownsArea, readyBait,
 import { makeDarknessTexture, makeTextures } from '../textures';
 import { completePages, discovered, legendOf, logbookBonus } from '../logbook';
 import { crateCapacity, cratesUsed, storeFish, unstoreFish, wantedFish } from '../crates';
+import { landmarkBonus, perkBonus } from '../perks';
 import {
   COLORS,
   Modal,
@@ -570,9 +571,14 @@ export class FishingScene extends Phaser.Scene {
     return FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1);
   }
 
+  /** Sharp Hooks perk and the Fisher Statue. */
+  private perkPrice(): number {
+    return perkBonus('sharpHooks') + landmarkBonus('fishPrice');
+  }
+
   /** Sale price including your house's level bonus, the Fish Market and this cast's bait. */
   private priceOf(type: FishType): number {
-    const bonus = this.houseBonus() + this.market + logbookBonus(type.area) + (this.activeBait?.sellBonus ?? 0);
+    const bonus = this.houseBonus() + this.market + this.perkPrice() + logbookBonus(type.area) + (this.activeBait?.sellBonus ?? 0);
     return Math.round(type.value * (1 + bonus));
   }
 
@@ -600,7 +606,8 @@ export class FishingScene extends Phaser.Scene {
   /** Now and then the area's legendary fish is down there, if the line can reach it. */
   private maybeSpawnLegend(): void {
     const type = legendOf(this.area.id);
-    if (!type || Math.random() >= LEGENDARY.chance || type.minDepth > this.stats.lineLength) return;
+    const chance = LEGENDARY.chance + perkBonus('luckyCharm') + landmarkBonus('legendaryChance');
+    if (!type || Math.random() >= chance || type.minDepth > this.stats.lineLength) return;
     const depth = Phaser.Math.Between(type.minDepth, Math.min(type.maxDepth, this.stats.lineLength - 5));
     const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
     const y = SURFACE_Y + depth * PX_PER_M;
@@ -928,12 +935,16 @@ export class FishingScene extends Phaser.Scene {
     const bonuses: string[] = [];
     if (this.houseBonus() > 0) bonuses.push(`house +${Math.round(this.houseBonus() * 100)}%`);
     if (this.market > 0) bonuses.push(`market +${Math.round(this.market * 100)}%`);
+    if (this.perkPrice() > 0) bonuses.push(`perks +${Math.round(this.perkPrice() * 100)}%`);
     const logbook = logbookBonus(this.area.id);
     if (logbook > 0) bonuses.push(`logbook +${Math.round(logbook * 100)}%`);
     if (this.activeBait) bonuses.push(`${this.activeBait.name.toLowerCase()} +${Math.round(this.activeBait.sellBonus * 100)}%`);
     const bonus = bonuses.length > 0;
+    const bonusText = `Bonuses: ${bonuses.join(', ')}`;
+    // Long lists of bonuses wrap onto a second line.
+    const bonusH = !bonus ? 0 : bonusText.length > 46 ? 44 : 26;
     const ice = crateCapacity() > 0 && counts.size > 0;
-    const m = (this.modal = new Modal(this, 200 + rows * 38 + (bonus ? 26 : 0) + (ice ? 26 : 0)));
+    const m = (this.modal = new Modal(this, 200 + rows * 38 + bonusH + (ice ? 26 : 0)));
     const redraw = () => {
       m.destroy();
       this.showResults(counts, kept, fresh);
@@ -945,8 +956,8 @@ export class FishingScene extends Phaser.Scene {
     if (this.area.id !== 'harbor') m.text(GAME_WIDTH / 2, m.top + 62, this.area.name, 13).setAlpha(0.6);
     let y = m.top + 84;
     if (bonus) {
-      m.text(GAME_WIDTH / 2, y - 12, `Bonuses: ${bonuses.join(', ')}`, 14).setAlpha(0.75);
-      y += 26;
+      m.text(GAME_WIDTH / 2, y - 12 + (bonusH - 26) / 2, bonusText, 14).setAlpha(0.75).setAlign('center').setWordWrapWidth(GAME_WIDTH - 80);
+      y += bonusH;
     }
     if (counts.size === 0) m.text(GAME_WIDTH / 2, y, 'Steer into fish on the way up!', 18).setAlpha(0.8);
     for (const [type, n] of [...counts].sort((a, b) => b[0].value - a[0].value)) {

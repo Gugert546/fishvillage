@@ -1,4 +1,4 @@
-import { BASE_STATS, UPGRADES, type AreaId, type BaitId, type BuildingId, type FishingStats, type UpgradeId } from './config';
+import { BASE_STATS, UPGRADES, type AreaId, type BaitId, type PerkId, type BuildingId, type FishingStats, type UpgradeId } from './config';
 
 const SAVE_KEY = 'fishvillage.save.v1';
 const SAVE_VERSION = 2;
@@ -83,6 +83,19 @@ export interface GameState {
   nextOrderId: number;
   /** Seconds accumulated toward the next order. */
   orderTimer: number;
+  /** Canned fish waiting for a trade ship, and what they're worth together. */
+  cans: number;
+  cansValue: number;
+  /** Fraction of the next can the Cannery is working on. */
+  canProgress: number;
+  /** Seconds accumulated toward the next trade ship. */
+  shipTimer: number;
+  /** Ranks bought in each perk. */
+  perks: Partial<Record<PerkId, number>>;
+  /** Perk points already announced, so new ones get a toast. */
+  perkPointsSeen: number;
+  /** Landmarks ever built (each is a perk point, even if moved or sold). */
+  landmarks: string[];
   /** Fishing areas you own a boat for (the Harbor needs none). */
   boats: AreaId[];
   /** Where you fish right now. */
@@ -111,6 +124,13 @@ function freshState(): GameState {
     orders: [],
     nextOrderId: 1,
     orderTimer: 0,
+    cans: 0,
+    cansValue: 0,
+    canProgress: 0,
+    shipTimer: 0,
+    perks: {},
+    perkPointsSeen: -1,
+    landmarks: [],
     boats: [],
     area: 'harbor',
     buildings: [],
@@ -174,6 +194,12 @@ export function save(): void {
 export function fishingStats(): FishingStats {
   const stats = { ...BASE_STATS };
   for (const def of UPGRADES) def.apply(stats, state.upgrades[def.id]);
+  // Fishing perks (ranks read straight from the save to keep this module dependency-free).
+  const rank = (id: PerkId) => state.perks[id] ?? 0;
+  stats.capacity += rank('bigBucket');
+  stats.shields += rank('steadyHands');
+  stats.descentSpeed *= 1 + 0.1 * rank('quickReel');
+  stats.ascentSpeed *= 1 + 0.1 * rank('quickReel');
   return stats;
 }
 
