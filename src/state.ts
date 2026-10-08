@@ -1,4 +1,4 @@
-import { BASE_STATS, UPGRADES, type BaitId, type BuildingId, type FishingStats, type UpgradeId } from './config';
+import { BASE_STATS, UPGRADES, type AreaId, type BaitId, type BuildingId, type FishingStats, type UpgradeId } from './config';
 
 const SAVE_KEY = 'fishvillage.save.v1';
 const SAVE_VERSION = 2;
@@ -65,6 +65,10 @@ export interface GameState {
   selectedBait: BaitId | null;
   quests: Quest[];
   nextQuestId: number;
+  /** Fishing areas you own a boat for (the Harbor needs none). */
+  boats: AreaId[];
+  /** Where you fish right now. */
+  area: AreaId;
   buildings: PlacedBuilding[];
   residents: Resident[];
   /** Seconds accumulated toward the next resident moving in. */
@@ -85,6 +89,8 @@ function freshState(): GameState {
     selectedBait: null,
     quests: [],
     nextQuestId: 1,
+    boats: [],
+    area: 'harbor',
     buildings: [],
     residents: [],
     moveInTimer: 0,

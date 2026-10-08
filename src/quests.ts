@@ -1,11 +1,11 @@
 // Quest board: a few small goals at a time, always ones the player can actually reach right now.
 
-import { BAITS, BUILDINGS, BUILDING_BY_ID, FISH, QUESTS, type BuildingId } from './config';
+import { AREA_BY_ID, BAITS, BUILDINGS, BUILDING_BY_ID, FISH, QUESTS, type BuildingId, type FishType } from './config';
 import { townHappiness } from './happiness';
 import { housingCapacity } from './population';
 import { hookBonus } from './services';
 import { fishingStats, save, state, type Quest, type QuestKind } from './state';
-import { baitUnlocked, isUnlocked, levelCap, townLevel } from './town';
+import { baitUnlocked, isUnlocked, levelCap, ownsArea, townLevel } from './town';
 
 type Draft = Omit<Quest, 'id' | 'progress' | 'done' | 'reward'> & { coins: number };
 
@@ -38,17 +38,17 @@ export function swapCost(): number {
 // ---------------------------------------------------------------- Generators
 // Each returns a quest that's possible right now, or undefined if this kind doesn't fit yet.
 
-/** Deepest point the hook can reach, in metres. */
-const reach = () => fishingStats().lineLength;
-/** How many of each fish feels like a fair ask: lots of common ones, a couple of rare ones. */
-const FISH_ASK: Record<string, number> = { sardine: 8, mackerel: 6, cod: 5, salmon: 4, tuna: 3, angler: 2 };
+/** Deepest point the hook can reach in a fish's area, in metres (some boats add line). */
+const reach = (f: FishType) => fishingStats().lineLength + AREA_BY_ID[f.area].lineBonus;
+/** How many of each fish feels like a fair ask: lots of cheap ones, a couple of pricey ones. */
+const fishAsk = (f: FishType) => (f.value <= 3 ? 8 : f.value <= 6 ? 6 : f.value <= 15 ? 5 : f.value <= 40 ? 4 : f.value <= 100 ? 3 : 2);
 
 const GENERATORS: Record<QuestKind, () => Draft | undefined> = {
   catchFish: () => {
-    // Only fish that live comfortably within the line's reach.
-    const fish = pick(FISH.filter((f) => f.minDepth + 5 <= reach()));
+    // Only fish in areas you can sail to, living comfortably within the line's reach.
+    const fish = pick(FISH.filter((f) => ownsArea(AREA_BY_ID[f.area]) && f.minDepth + 5 <= reach(f)));
     if (!fish) return undefined;
-    const amount = FISH_ASK[fish.id] ?? 3;
+    const amount = fishAsk(fish);
     return { kind: 'catchFish', target: fish.id, amount, coins: roundTo(amount * fish.value * 3 + 20, 5) };
   },
   fillHook: () => {
@@ -208,7 +208,8 @@ export function swapQuest(q: Quest): boolean {
 }
 
 export function describeQuest(q: Quest): string {
-  const fish = FISH.find((f) => f.id === q.target)?.name ?? 'fish';
+  const fishType = FISH.find((f) => f.id === q.target);
+  const fish = fishType ? `${fishType.name}${fishType.area === 'harbor' ? '' : ` (${AREA_BY_ID[fishType.area].name})`}` : 'fish';
   const building = q.target ? BUILDING_BY_ID[q.target as BuildingId]?.name : '';
   switch (q.kind) {
     case 'catchFish':

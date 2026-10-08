@@ -20,21 +20,13 @@ export interface Zone {
   color: number;
 }
 
-export const ZONES: Zone[] = [
-  { name: 'Shallows', from: 0, color: 0x3fa7d6 },
-  { name: 'Open Water', from: 50, color: 0x2378b5 },
-  { name: 'The Deep', from: 120, color: 0x124a80 },
-  { name: 'Abyss', from: 200, color: 0x081d3d },
-];
-
-/** Deepest point fish spawn (meters). */
-export const WORLD_DEPTH_M = 280;
-
 // ---------------------------------------------------------------------- Fish
 
 export interface FishType {
   id: string;
   name: string;
+  /** Fishing area this fish lives in. */
+  area: AreaId;
   value: number;
   /** Depth range in meters where this fish can spawn. */
   minDepth: number;
@@ -49,19 +41,134 @@ export interface FishType {
   color: number;
   /** Swims with a wobbly up-and-down path. */
   erratic?: boolean;
+  /** Extra detail on the programmer art. */
+  look?: 'bill' | 'stripes' | 'squid' | 'crab' | 'flat';
 }
 
 export const FISH: FishType[] = [
-  { id: 'sardine', name: 'Sardine', value: 2, minDepth: 2, maxDepth: 45, weight: 10, speed: [30, 60], width: 26, height: 12, color: 0xc7d3e0 },
-  { id: 'mackerel', name: 'Mackerel', value: 5, minDepth: 8, maxDepth: 70, weight: 7, speed: [50, 90], width: 34, height: 14, color: 0x5fb3e8 },
-  { id: 'cod', name: 'Cod', value: 12, minDepth: 35, maxDepth: 110, weight: 6, speed: [35, 60], width: 44, height: 20, color: 0xb59f6a },
-  { id: 'salmon', name: 'Salmon', value: 25, minDepth: 55, maxDepth: 140, weight: 5, speed: [70, 110], width: 46, height: 18, color: 0xf2906e },
-  { id: 'tuna', name: 'Tuna', value: 60, minDepth: 100, maxDepth: 220, weight: 4, speed: [100, 150], width: 58, height: 24, color: 0x3a5fa8 },
-  { id: 'angler', name: 'Anglerfish', value: 150, minDepth: 160, maxDepth: 280, weight: 3, speed: [40, 80], width: 40, height: 28, color: 0x7a4f8c, erratic: true },
+  { id: 'sardine', name: 'Sardine', area: 'harbor', value: 2, minDepth: 2, maxDepth: 45, weight: 10, speed: [30, 60], width: 26, height: 12, color: 0xc7d3e0 },
+  { id: 'mackerel', name: 'Mackerel', area: 'harbor', value: 5, minDepth: 8, maxDepth: 70, weight: 7, speed: [50, 90], width: 34, height: 14, color: 0x5fb3e8 },
+  { id: 'cod', name: 'Cod', area: 'harbor', value: 12, minDepth: 35, maxDepth: 110, weight: 6, speed: [35, 60], width: 44, height: 20, color: 0xb59f6a },
+  { id: 'salmon', name: 'Salmon', area: 'harbor', value: 25, minDepth: 55, maxDepth: 140, weight: 5, speed: [70, 110], width: 46, height: 18, color: 0xf2906e },
+  { id: 'tuna', name: 'Tuna', area: 'harbor', value: 60, minDepth: 100, maxDepth: 220, weight: 4, speed: [100, 150], width: 58, height: 24, color: 0x3a5fa8 },
+  { id: 'angler', name: 'Anglerfish', area: 'harbor', value: 150, minDepth: 160, maxDepth: 280, weight: 3, speed: [40, 80], width: 40, height: 28, color: 0x7a4f8c, erratic: true },
+  // Open Sea
+  { id: 'herring', name: 'Herring', area: 'openSea', value: 6, minDepth: 2, maxDepth: 60, weight: 10, speed: [50, 90], width: 30, height: 13, color: 0x9fb8c8 },
+  { id: 'seaBass', name: 'Sea Bass', area: 'openSea', value: 15, minDepth: 15, maxDepth: 110, weight: 7, speed: [40, 70], width: 42, height: 18, color: 0x6c7a89 },
+  { id: 'mahi', name: 'Mahi-mahi', area: 'openSea', value: 35, minDepth: 40, maxDepth: 160, weight: 6, speed: [110, 160], width: 48, height: 20, color: 0x4cc38a },
+  { id: 'swordfish', name: 'Swordfish', area: 'openSea', value: 90, minDepth: 110, maxDepth: 240, weight: 4, speed: [130, 180], width: 60, height: 18, color: 0x51607a, look: 'bill' },
+  { id: 'marlin', name: 'Marlin', area: 'openSea', value: 220, minDepth: 180, maxDepth: 280, weight: 3, speed: [140, 200], width: 70, height: 22, color: 0x2b4c8c, look: 'bill' },
+  // Coral Reef
+  { id: 'clownfish', name: 'Clownfish', area: 'reef', value: 10, minDepth: 2, maxDepth: 60, weight: 10, speed: [30, 60], width: 24, height: 14, color: 0xff7f2a, look: 'stripes' },
+  { id: 'blueTang', name: 'Blue Tang', area: 'reef', value: 22, minDepth: 10, maxDepth: 100, weight: 8, speed: [50, 90], width: 30, height: 18, color: 0x2a6fdb },
+  { id: 'parrotfish', name: 'Parrotfish', area: 'reef', value: 45, minDepth: 30, maxDepth: 140, weight: 6, speed: [40, 70], width: 40, height: 20, color: 0x3ec7a8 },
+  { id: 'lionfish', name: 'Lionfish', area: 'reef', value: 90, minDepth: 70, maxDepth: 180, weight: 4, speed: [30, 50], width: 36, height: 24, color: 0xd9534f, erratic: true, look: 'stripes' },
+  { id: 'grouper', name: 'Grouper', area: 'reef', value: 160, minDepth: 120, maxDepth: 220, weight: 3, speed: [25, 45], width: 56, height: 28, color: 0x8a6d4a },
+  // Deep Trench
+  { id: 'hatchetfish', name: 'Hatchetfish', area: 'trench', value: 25, minDepth: 5, maxDepth: 120, weight: 9, speed: [40, 80], width: 26, height: 18, color: 0xb8c4d6 },
+  { id: 'gulper', name: 'Gulper Eel', area: 'trench', value: 70, minDepth: 60, maxDepth: 220, weight: 6, speed: [30, 60], width: 54, height: 14, color: 0x5a4a6e, erratic: true },
+  { id: 'viperfish', name: 'Viperfish', area: 'trench', value: 140, minDepth: 140, maxDepth: 300, weight: 5, speed: [60, 100], width: 44, height: 16, color: 0x3a6a9a },
+  { id: 'giantSquid', name: 'Giant Squid', area: 'trench', value: 350, minDepth: 240, maxDepth: 400, weight: 3, speed: [30, 60], width: 56, height: 26, color: 0xb5443b, look: 'squid' },
+  { id: 'coelacanth', name: 'Coelacanth', area: 'trench', value: 700, minDepth: 320, maxDepth: 400, weight: 1.5, speed: [25, 45], width: 62, height: 26, color: 0x4a5d73 },
+  // Arctic Waters
+  { id: 'arcticChar', name: 'Arctic Char', area: 'arctic', value: 40, minDepth: 2, maxDepth: 90, weight: 9, speed: [50, 90], width: 34, height: 15, color: 0xe38b6d },
+  { id: 'snowCrab', name: 'Snow Crab', area: 'arctic', value: 110, minDepth: 60, maxDepth: 180, weight: 6, speed: [15, 30], width: 34, height: 20, color: 0xd9663f, look: 'crab' },
+  { id: 'halibut', name: 'Halibut', area: 'arctic', value: 180, minDepth: 100, maxDepth: 240, weight: 5, speed: [25, 45], width: 56, height: 18, color: 0x8a7f6a, look: 'flat' },
+  { id: 'wolffish', name: 'Wolffish', area: 'arctic', value: 320, minDepth: 170, maxDepth: 280, weight: 3, speed: [40, 70], width: 52, height: 20, color: 0x5c6b78 },
+  { id: 'ghostFish', name: 'Ghost Fish', area: 'arctic', value: 900, minDepth: 230, maxDepth: 280, weight: 1, speed: [50, 90], width: 40, height: 18, color: 0xe8f4ff, erratic: true },
 ];
 
-/** Average fish per 10 m of depth. */
-export const FISH_DENSITY = 1.7;
+// -------------------------------------------------------------- Fishing areas
+// The Harbor is free; every other area needs its own boat, bought at the Boatyard.
+
+export type AreaId = 'harbor' | 'openSea' | 'reef' | 'trench' | 'arctic';
+export type HazardKind = 'shark' | 'jelly' | 'ice';
+
+export interface AreaDef {
+  id: AreaId;
+  name: string;
+  /** Boat that takes you there (none for the Harbor). */
+  boat?: string;
+  /** One line for the boat list. */
+  blurb: string;
+  unlockLevel: number;
+  cost: number;
+  /** Deepest point fish spawn (meters). */
+  depth: number;
+  /** Extra line the boat's winch lets out here, meters. */
+  lineBonus: number;
+  /** Average fish per 10 m of depth. */
+  density: number;
+  zones: Zone[];
+  sky: number;
+  /** Hazards that roam the water. */
+  hazard?: { kind: HazardKind; perTenM: number; minDepth: number };
+  /** Pitch black below the surface except right around the hook. */
+  dark?: boolean;
+  /** Boat colours for the programmer art. */
+  hull?: number;
+  cabin?: number;
+}
+
+export const AREAS: AreaDef[] = [
+  {
+    id: 'harbor', name: 'Harbor', blurb: 'Your dock by the village', unlockLevel: 1, cost: 0, depth: 280, lineBonus: 0, density: 1.7, sky: 0xa8def0,
+    zones: [
+      { name: 'Shallows', from: 0, color: 0x3fa7d6 },
+      { name: 'Open Water', from: 50, color: 0x2378b5 },
+      { name: 'The Deep', from: 120, color: 0x124a80 },
+      { name: 'Abyss', from: 200, color: 0x081d3d },
+    ],
+  },
+  {
+    id: 'openSea', name: 'Open Sea', boat: 'Fishing Boat', blurb: 'Fast fish. Sharks bite fish off your hook!', unlockLevel: 5, cost: 25_000, depth: 280, lineBonus: 0, density: 1.6, sky: 0x8fd0f0,
+    hazard: { kind: 'shark', perTenM: 0.35, minDepth: 30 }, hull: 0xd8dee4, cabin: 0x2f6690,
+    zones: [
+      { name: 'Surface', from: 0, color: 0x2d8fd0 },
+      { name: 'Blue Water', from: 60, color: 0x1a63a8 },
+      { name: 'Twilight', from: 150, color: 0x0e3a72 },
+      { name: 'Deep Blue', from: 220, color: 0x061a3a },
+    ],
+  },
+  {
+    id: 'reef', name: 'Coral Reef', boat: 'Catamaran', blurb: 'Packed with fish. Jellyfish sting!', unlockLevel: 5, cost: 90_000, depth: 220, lineBonus: 0, density: 2.6, sky: 0xb5ecf5,
+    hazard: { kind: 'jelly', perTenM: 0.5, minDepth: 10 }, hull: 0xffffff, cabin: 0xe76f51,
+    zones: [
+      { name: 'Lagoon', from: 0, color: 0x3ed3d0 },
+      { name: 'Reef Wall', from: 60, color: 0x1fa6b8 },
+      { name: 'Drop-off', from: 140, color: 0x16708f },
+    ],
+  },
+  {
+    id: 'trench', name: 'Deep Trench', boat: 'Trawler', blurb: 'Pitch dark, very deep. Winch: +120 m line', unlockLevel: 6, cost: 300_000, depth: 400, lineBonus: 120, density: 1.5, sky: 0x7d93a8,
+    dark: true, hull: 0x3d5a80, cabin: 0xe0e1dd,
+    zones: [
+      { name: 'Surface', from: 0, color: 0x1f5f8b },
+      { name: 'Midnight Zone', from: 60, color: 0x0b2545 },
+      { name: 'The Trench', from: 200, color: 0x050d1f },
+      { name: 'Hadal', from: 320, color: 0x02040a },
+    ],
+  },
+  {
+    id: 'arctic', name: 'Arctic Waters', boat: 'Icebreaker', blurb: 'Priciest fish. Ice floes block your line!', unlockLevel: 6, cost: 1_000_000, depth: 280, lineBonus: 0, density: 1.6, sky: 0xdcebf5,
+    hazard: { kind: 'ice', perTenM: 0.4, minDepth: 8 }, hull: 0xc1121f, cabin: 0xf1f1f1,
+    zones: [
+      { name: 'Ice Shelf', from: 0, color: 0x6fb7d9 },
+      { name: 'Cold Water', from: 70, color: 0x3a7ca5 },
+      { name: 'Frozen Deep', from: 170, color: 0x1b3a5c },
+    ],
+  },
+];
+
+export const AREA_BY_ID = Object.fromEntries(AREAS.map((a) => [a.id, a])) as Record<AreaId, AreaDef>;
+
+export const HAZARD_INFO: Record<HazardKind, { name: string; width: number; height: number; speed: [number, number] }> = {
+  shark: { name: 'Shark', width: 78, height: 26, speed: [120, 170] },
+  jelly: { name: 'Jellyfish', width: 26, height: 30, speed: [8, 20] },
+  ice: { name: 'Ice floe', width: 90, height: 24, speed: [6, 16] },
+};
+/** Seconds the hook can't be steered after a jellyfish sting. */
+export const STING_SECONDS = 1.1;
 
 // ---------------------------------------------------------------------- Bait
 // Bought in packs at the Bait Shop; one is used per cast. Bait raises what fish sell for and
@@ -89,9 +196,9 @@ export interface BaitDef {
 
 export const BAITS: BaitDef[] = [
   { id: 'worm', name: 'Worms', lures: 'More bites', unlockLevel: 2, packSize: 5, packCost: 20, sellBonus: 0.1, density: 1.15, attract: {}, color: 0xe07a8f },
-  { id: 'shrimp', name: 'Shrimp', lures: 'Lures Cod & Salmon', unlockLevel: 3, packSize: 5, packCost: 75, sellBonus: 0.15, density: 1.1, attract: { cod: 2, salmon: 2 }, color: 0xf4a261 },
-  { id: 'squid', name: 'Squid', lures: 'Lures Tuna', unlockLevel: 4, packSize: 5, packCost: 250, sellBonus: 0.2, density: 1.1, attract: { tuna: 2.5, salmon: 1.5 }, color: 0xcdb4db },
-  { id: 'glow', name: 'Glow Bait', lures: 'Lures Anglerfish', unlockLevel: 5, packSize: 5, packCost: 800, sellBonus: 0.25, density: 1.1, attract: { angler: 4, tuna: 1.5 }, color: 0xb9fbc0 },
+  { id: 'shrimp', name: 'Shrimp', lures: 'Lures Cod & Salmon', unlockLevel: 3, packSize: 5, packCost: 75, sellBonus: 0.15, density: 1.1, attract: { cod: 2, salmon: 2, seaBass: 2, parrotfish: 2, hatchetfish: 1.5 }, color: 0xf4a261 },
+  { id: 'squid', name: 'Squid', lures: 'Lures Tuna', unlockLevel: 4, packSize: 5, packCost: 250, sellBonus: 0.2, density: 1.1, attract: { tuna: 2.5, salmon: 1.5, swordfish: 2, lionfish: 2, snowCrab: 2, giantSquid: 1.5 }, color: 0xcdb4db },
+  { id: 'glow', name: 'Glow Bait', lures: 'Lures Anglerfish', unlockLevel: 5, packSize: 5, packCost: 800, sellBonus: 0.25, density: 1.1, attract: { angler: 4, tuna: 1.5, marlin: 2, grouper: 2, coelacanth: 2, ghostFish: 2 }, color: 0xb9fbc0 },
 ];
 
 export const BAIT_BY_ID = Object.fromEntries(BAITS.map((b) => [b.id, b])) as Record<BaitId, BaitDef>;
@@ -626,7 +733,7 @@ BUILDINGS.push(
   service({
     id: 'boatyard',
     name: 'Boatyard',
-    description: 'Builds boats for the open sea. (Coming soon!)',
+    description: 'Builds boats that take you to new fishing spots. Needs a worker.',
     w: 4,
     h: 4,
     wall: 0xb08968,

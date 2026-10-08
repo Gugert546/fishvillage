@@ -1,6 +1,7 @@
 // Town rules: where buildings fit, what things cost, and what the shops allow.
 
 import {
+  AREA_BY_ID,
   BAITS,
   BUILDING_BY_ID,
   BUILDINGS,
@@ -13,14 +14,15 @@ import {
   TOWN_COLS,
   expansionCost,
   upgradeCost,
+  type AreaDef,
   type BaitDef,
   type BuildingDef,
   type BuildingId,
   type UpgradeDef,
 } from './config';
-import { assignJobs, evictFrom, housingOf, jobSlots, shopOpen, tickPopulation, totalJobs } from './population';
+import { assignJobs, evictFrom, housingOf, jobSlots, shopOpen, tickPopulation, totalJobs, workerCounts } from './population';
 import { questEvent } from './quests';
-import { touchesWater } from './water';
+import { isWorking, touchesWater, wateredTiles } from './water';
 import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
 
 export function townRows(): number {
@@ -315,4 +317,41 @@ export function consumeBait(): BaitDef | undefined {
   state.bait[bait.id] = (state.bait[bait.id] ?? 0) - 1;
   save();
   return bait;
+}
+
+// --------------------------------------------------------------- Boats & areas
+
+export function ownsArea(area: AreaDef): boolean {
+  return area.cost === 0 || state.boats.includes(area.id);
+}
+
+/** Where the next cast happens: the chosen area if you own its boat, else the Harbor. */
+export function currentArea(): AreaDef {
+  const area = AREA_BY_ID[state.area];
+  return area && ownsArea(area) ? area : AREA_BY_ID.harbor;
+}
+
+export function boatUnlocked(area: AreaDef): boolean {
+  return townLevel() >= area.unlockLevel;
+}
+
+/** The Boatyard builds boats while it has a worker and water beside it. */
+export function boatyardOpen(): boolean {
+  const counts = workerCounts();
+  const wet = wateredTiles();
+  return state.buildings.some((b) => b.type === 'boatyard' && (counts.get(b.id) ?? 0) > 0 && isWorking(b, wet));
+}
+
+export function buyBoat(area: AreaDef): boolean {
+  if (ownsArea(area) || !boatUnlocked(area) || !boatyardOpen() || state.coins < area.cost) return false;
+  state.coins -= area.cost;
+  state.boats.push(area.id);
+  save();
+  return true;
+}
+
+export function sailTo(area: AreaDef): void {
+  if (!ownsArea(area)) return;
+  state.area = area.id;
+  save();
 }

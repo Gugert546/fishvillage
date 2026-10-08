@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
+  AREAS,
   FISH,
-  FISH_DENSITY,
   FISH_PRICE_BONUS_PER_LEVEL,
   FULL_HOOK_RAMP_SECONDS,
   FULL_HOOK_REEL_MULTIPLIER,
@@ -9,11 +9,13 @@ import {
   GAME_WIDTH,
   HOOK_RADIUS,
   HOOK_STEER_SPEED,
+  HAZARD_INFO,
   PX_PER_M,
+  STING_SECONDS,
   SURFACE_Y,
-  WORLD_DEPTH_M,
-  ZONES,
+  type AreaDef,
   type BaitDef,
+  type HazardKind,
   type FishType,
   type FishingStats,
 } from '../config';
@@ -21,8 +23,8 @@ import { fishingStats, save, state } from '../state';
 import { tickEconomy } from '../economy';
 import { questEvent, takeQuestToasts } from '../quests';
 import { hookBonus, marketBonus, sonarRange } from '../services';
-import { consumeBait, cycleBait, readyBait, townLevel } from '../town';
-import { makeTextures } from '../textures';
+import { boatUnlocked, consumeBait, currentArea, cycleBait, ownsArea, readyBait, sailTo, townLevel } from '../town';
+import { makeDarknessTexture, makeTextures } from '../textures';
 import {
   COLORS,
   Modal,
@@ -32,6 +34,8 @@ import {
   lerpColor,
   makeButton,
   makeText,
+  onTap,
+  formatCoins,
   openSettings,
   showOfflineEarnings,
   showToast,
@@ -52,15 +56,37 @@ interface Fish {
   hangOffset?: number;
 }
 
-const WORLD_HEIGHT = SURFACE_Y + WORLD_DEPTH_M * PX_PER_M + GAME_HEIGHT;
+interface Hazard {
+  kind: HazardKind;
+  sprite: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  vx: number;
+  seed: number;
+  /** A hazard that just hit leaves you alone for a moment. */
+  calmUntil: number;
+}
+
+/** Moored boats at the Harbor: small, side by side to the right of the hook. */
+const MOORING_X = [254, 303, 352, 401];
+const MOORED_SCALE = 0.23;
 const ROD_TIP = { x: 215, y: SURFACE_Y - 105 };
 const HOOK_REST = { x: 235, y: SURFACE_Y + 18 };
 
 export class FishingScene extends Phaser.Scene {
   private phase: Phase = 'idle';
   private stats!: FishingStats;
+  private area!: AreaDef;
+  private worldHeight = 0;
   private fish: Fish[] = [];
   private caught: Fish[] = [];
+  private hazards: Hazard[] = [];
+  /** Jellyfish sting: no steering until then. */
+  private stunnedUntil = 0;
+  private darkness?: Phaser.GameObjects.Image;
+  private areaButton!: Button;
+  /** Tap areas on the moored boats (only while on the dock). */
+  private boatZones: Phaser.GameObjects.Zone[] = [];
 
   private hookX = HOOK_REST.x;
   private hookY = HOOK_REST.y;
@@ -99,18 +125,28 @@ export class FishingScene extends Phaser.Scene {
     // Phaser reuses the scene instance when it restarts, so clear per-run state.
     this.fish = [];
     this.caught = [];
+    this.hazards = [];
+    this.boatZones = [];
     this.modal = undefined;
     this.sonarTags = [];
+    this.darkness = undefined;
+    this.area = currentArea();
+    this.worldHeight = SURFACE_Y + this.area.depth * PX_PER_M + GAME_HEIGHT;
 
     makeTextures(this);
     this.drawWorld();
+    if (this.area.dark) {
+      // Above the fish but below the sonar, the line and the catch.
+      makeDarknessTexture(this, GAME_WIDTH * 2, GAME_HEIGHT * 2);
+      this.darkness = this.add.image(0, 0, 'darkness').setScale(3).setDepth(7).setAlpha(0);
+    }
 
     this.line = this.add.graphics().setDepth(10);
     this.sonarGfx = this.add.graphics().setDepth(8);
     this.shieldRing = this.add.circle(0, 0, HOOK_RADIUS + 7).setStrokeStyle(2, 0xffe066, 0.9).setDepth(11);
     this.hook = this.add.image(0, 0, 'hook').setDepth(12);
 
-    this.cameras.main.setBounds(0, 0, GAME_WIDTH, WORLD_HEIGHT);
+    this.cameras.main.setBounds(0, 0, GAME_WIDTH, this.worldHeight);
     this.createHud();
     this.setupInput();
     this.resetToDock();
@@ -119,42 +155,70 @@ export class FishingScene extends Phaser.Scene {
   // ------------------------------------------------------------------ Setup
 
   private drawWorld(): void {
+    const area = this.area;
     const g = this.add.graphics();
+    const depthPx = (m: number) => SURFACE_Y + m * PX_PER_M;
 
     // Sky
-    g.fillStyle(0xa8def0);
+    g.fillStyle(area.sky);
     g.fillRect(0, 0, GAME_WIDTH, SURFACE_Y);
-    g.fillStyle(0xfff1b8);
-    g.fillCircle(380, 70, 34);
+    g.fillStyle(area.dark ? 0xe9eef2 : 0xfff1b8);
+    g.fillCircle(380, 70, area.dark ? 22 : 34);
 
     // Water: gradient through the zones
     const band = 8;
-    for (let y = SURFACE_Y; y < WORLD_HEIGHT; y += band) {
+    for (let y = SURFACE_Y; y < this.worldHeight; y += band) {
       g.fillStyle(this.waterColorAt((y - SURFACE_Y) / PX_PER_M));
       g.fillRect(0, y, GAME_WIDTH, band);
     }
     g.fillStyle(0xd6f1fb, 0.8);
     g.fillRect(0, SURFACE_Y, GAME_WIDTH, 4);
 
+    // Sea floor just below the deepest fish
+    const floorY = depthPx(area.depth + 3);
+    g.fillStyle(area.id === 'reef' ? 0xe9d8a6 : 0x2e2c29);
+    g.fillRect(0, floorY, GAME_WIDTH, this.worldHeight - floorY);
+    if (area.id === 'reef') {
+      const corals = [0xff6b6b, 0xf7a072, 0xc77dff, 0xff8fab, 0x80ed99];
+      for (let i = 0, x = 10; x < GAME_WIDTH; i++, x += 34) {
+        g.fillStyle(corals[i % corals.length]);
+        const hgt = 30 + ((i * 23) % 40);
+        g.fillRect(x + 8, floorY - hgt, 6, hgt);
+        g.fillCircle(x + 11, floorY - hgt, 9);
+        g.fillCircle(x + 2, floorY - hgt * 0.6, 6);
+        g.fillCircle(x + 20, floorY - hgt * 0.7, 7);
+      }
+    }
+
     // Depth markers
-    for (let m = 10; m <= WORLD_DEPTH_M; m += 10) {
-      const y = SURFACE_Y + m * PX_PER_M;
+    for (let m = 10; m <= area.depth; m += 10) {
+      const y = depthPx(m);
       g.fillStyle(0xffffff, 0.25);
       g.fillRect(GAME_WIDTH - 18, y, 18, 2);
       makeText(this, GAME_WIDTH - 22, y, `${m}m`, 12).setOrigin(1, 0.5).setAlpha(0.35);
     }
-    for (const zone of ZONES.slice(1)) {
-      makeText(this, 12, SURFACE_Y + zone.from * PX_PER_M + 8, zone.name, 14).setAlpha(0.45);
+    for (const zone of area.zones.slice(1)) {
+      makeText(this, 12, depthPx(zone.from) + 8, zone.name, 14).setAlpha(0.45);
     }
 
-    // Dock
     const deckY = SURFACE_Y - 34;
-    g.fillStyle(0x5c3a1e);
-    for (const px of [18, 78, 138]) g.fillRect(px, deckY, 12, 70);
-    g.fillStyle(0x8b5a2b);
-    g.fillRect(0, deckY, 175, 14);
-    g.fillStyle(0x6e4522);
-    for (let x = 0; x < 175; x += 25) g.fillRect(x, deckY, 2, 14);
+    if (area.id === 'harbor') {
+      this.drawMooredBoats();
+      // Dock
+      g.fillStyle(0x5c3a1e);
+      for (const px of [18, 78, 138]) g.fillRect(px, deckY, 12, 70);
+      g.fillStyle(0x8b5a2b);
+      g.fillRect(0, deckY, 175, 14);
+      g.fillStyle(0x6e4522);
+      for (let x = 0; x < 175; x += 25) g.fillRect(x, deckY, 2, 14);
+    } else {
+      if (area.id === 'arctic') {
+        // Floating ice on the surface
+        g.fillStyle(0xf1f8fc);
+        for (const [x, w] of [[300, 46], [372, 30], [418, 40]]) g.fillRect(x, SURFACE_Y - 6, w, 12);
+      }
+      this.drawBoat(g, 0, SURFACE_Y, 1, area);
+    }
 
     // Fisher
     g.fillStyle(0x2f4858);
@@ -171,13 +235,98 @@ export class FishingScene extends Phaser.Scene {
     g.lineBetween(146, deckY - 45, ROD_TIP.x, ROD_TIP.y);
   }
 
+  /**
+   * A boat with its deck `34 × s` px above the waterline, starting at `x`. Each area's boat
+   * gets its own superstructure.
+   */
+  private drawBoat(g: Phaser.GameObjects.Graphics, x: number, waterY: number, s: number, area: AreaDef): void {
+    const P = (px: number, py: number) => new Phaser.Math.Vector2(x + px * s, waterY + py * s);
+    const line = (a: Phaser.Math.Vector2, b: Phaser.Math.Vector2) => g.lineBetween(a.x, a.y, b.x, b.y);
+    const tri = (a: Phaser.Math.Vector2, b: Phaser.Math.Vector2, c: Phaser.Math.Vector2) => g.fillTriangle(a.x, a.y, b.x, b.y, c.x, c.y);
+    const rect = (px: number, py: number, w: number, h: number) => g.fillRect(x + px * s, waterY + py * s, w * s, h * s);
+    const hull = area.hull ?? 0xffffff;
+    const cabin = area.cabin ?? 0x888888;
+
+    // Superstructure first, so the hull covers its bottom edge.
+    if (area.id === 'reef') {
+      g.lineStyle(Math.max(1, 3 * s), 0x6b4f3a);
+      line(P(100, -34), P(100, -170));
+      g.fillStyle(0xfdfdfd, 0.95);
+      tri(P(104, -165), P(104, -44), P(178, -44));
+      g.fillStyle(cabin);
+      tri(P(96, -150), P(96, -50), P(40, -50));
+    } else if (area.id === 'trench') {
+      g.fillStyle(cabin);
+      rect(30, -82, 64, 50);
+      g.fillStyle(0x2b2d42);
+      rect(38, -72, 48, 12);
+      g.lineStyle(Math.max(1, 4 * s), 0xf4a261);
+      line(P(4, -34), P(16, -120));
+      line(P(28, -34), P(16, -120));
+      g.lineStyle(Math.max(1, 1.5 * s), 0x222222);
+      line(P(16, -120), P(-6, -10));
+    } else if (area.id === 'arctic') {
+      g.fillStyle(cabin);
+      rect(18, -100, 76, 66);
+      g.fillStyle(hull);
+      rect(18, -100, 76, 10);
+      g.fillStyle(0x2b2d42);
+      for (const wx of [26, 48, 70]) rect(wx, -84, 14, 10);
+      g.fillStyle(0x333333);
+      rect(46, -122, 18, 22);
+      g.fillStyle(hull);
+      rect(46, -122, 18, 6);
+    } else {
+      g.fillStyle(cabin);
+      rect(20, -76, 62, 42);
+      g.fillStyle(0xfff3b0);
+      rect(30, -66, 16, 12);
+      rect(54, -66, 16, 12);
+      g.lineStyle(Math.max(1, 3 * s), 0x6b4f3a);
+      line(P(100, -34), P(100, -118));
+    }
+
+    g.fillStyle(hull);
+    g.fillPoints([P(-4, -34), P(194, -34), P(178, 12), P(12, 12)], true);
+    g.fillStyle(lerpColor(hull, 0x000000, 0.35));
+    g.fillPoints([P(-2, -12), P(186, -12), P(182, 0), P(4, 0)], true);
+    g.fillStyle(lerpColor(hull, 0x000000, 0.15));
+    rect(-4, -34, 198, 5);
+  }
+
+  /** Bought boats wait at the Harbor; tap one to sail to its area. */
+  private drawMooredBoats(): void {
+    const owned = AREAS.filter((a) => a.boat && ownsArea(a));
+    owned.forEach((area, i) => {
+      const x = MOORING_X[i];
+      const g = this.add.graphics().setDepth(1);
+      this.drawBoat(g, 0, 0, MOORED_SCALE, area);
+      g.setPosition(x, SURFACE_Y + 2);
+      this.tweens.add({ targets: g, y: g.y + 2, duration: 1100 + i * 170, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      const w = 200 * MOORED_SCALE;
+      const zone = this.add.zone(x + w / 2, SURFACE_Y - 18, w, 52);
+      onTap(zone, () => {
+        if (this.phase === 'idle' && !this.modal) this.sail(area);
+      });
+      this.boatZones.push(zone);
+    });
+  }
+
+  private sail(area: AreaDef): void {
+    if (area.id === this.area.id) return;
+    sailTo(area);
+    this.cameras.main.fadeOut(250, 0, 0, 0);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart());
+  }
+
   private waterColorAt(depthM: number): number {
-    for (let i = 0; i < ZONES.length - 1; i++) {
-      const a = ZONES[i];
-      const b = ZONES[i + 1];
+    const zones = this.area.zones;
+    for (let i = 0; i < zones.length - 1; i++) {
+      const a = zones[i];
+      const b = zones[i + 1];
       if (depthM < b.from) return lerpColor(a.color, b.color, (depthM - a.from) / (b.from - a.from));
     }
-    return ZONES[ZONES.length - 1].color;
+    return zones[zones.length - 1].color;
   }
 
   private createHud(): void {
@@ -203,6 +352,53 @@ export class FishingScene extends Phaser.Scene {
         this.refreshBaitButton();
       }, COLORS.primary, 18),
     );
+    this.areaButton = hud(
+      makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 184, 240, 46, '', () => this.openAreaPicker(), COLORS.neutral, 18),
+    );
+    this.cameras.main.fadeIn(250, 0, 0, 0);
+  }
+
+  /** Fishing spots: sail to one you own a boat for; the rest show what they need. */
+  private openAreaPicker(): void {
+    if (this.phase !== 'idle' || this.modal) return;
+    const rowH = 88;
+    const m = (this.modal = new Modal(this, 150 + AREAS.length * rowH));
+    const close = () => {
+      m.destroy();
+      this.modal = undefined;
+    };
+    m.text(GAME_WIDTH / 2, m.top + 30, 'Fishing spots', 26);
+    m.text(GAME_WIDTH / 2, m.top + 60, 'Boats are built at the Boatyard', 14).setAlpha(0.8);
+    let y = m.top + 112;
+    for (const area of AREAS) {
+      const owned = ownsArea(area);
+      const here = area.id === this.area.id;
+      m.text(36, y - 22, area.name, 18, 0).setAlpha(owned ? 1 : 0.7);
+      m.text(36, y - 8, area.boat ? `${area.boat}: ${area.blurb}` : area.blurb, 13, 0)
+        .setOrigin(0, 0)
+        .setAlpha(0.75)
+        .setWordWrapWidth(GAME_WIDTH - 180);
+      let label = here ? 'Here' : 'Sail';
+      if (!owned) label = boatUnlocked(area) ? `$${formatCoins(area.cost)}` : `Lv ${area.unlockLevel}`;
+      const btn = makeButton(this, GAME_WIDTH - 80, y - 4, 100, 44, label, () => {
+        if (owned && !here) {
+          close();
+          this.sail(area);
+        }
+      }, COLORS.primary, 17);
+      btn.setEnabledLook(owned && !here, COLORS.primary);
+      m.add(btn);
+      if (!owned) m.text(GAME_WIDTH - 80, y + 26, boatUnlocked(area) ? 'at Boatyard' : 'town level', 11).setAlpha(0.6);
+      y += rowH;
+    }
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', close, COLORS.neutral));
+  }
+
+  private refreshAreaButton(): void {
+    const show = this.phase === 'idle' && (state.boats.length > 0 || townLevel() >= 5);
+    this.areaButton.setVisible(show);
+    this.areaButton.setLabel(`Spot: ${this.area.name}`);
+    for (const z of this.boatZones) if (z.input) z.input.enabled = this.phase === 'idle';
   }
 
   private refreshBaitButton(): void {
@@ -218,6 +414,25 @@ export class FishingScene extends Phaser.Scene {
     for (const f of this.fish) f.sprite.destroy();
     this.fish = [];
     this.spawnFish();
+  }
+
+  private spawnHazards(): void {
+    for (const h of this.hazards) h.sprite.destroy();
+    this.hazards = [];
+    const spawn = this.area.hazard;
+    if (!spawn) return;
+    const info = HAZARD_INFO[spawn.kind];
+    for (let seg = spawn.minDepth; seg < this.area.depth; seg += 10) {
+      const n = Math.floor(spawn.perTenM + Math.random());
+      for (let i = 0; i < n; i++) {
+        const x = Phaser.Math.Between(info.width / 2, GAME_WIDTH - info.width / 2);
+        const y = SURFACE_Y + (seg + Math.random() * 10) * PX_PER_M;
+        const speed = Phaser.Math.Between(info.speed[0], info.speed[1]);
+        const vx = Math.random() < 0.5 ? -speed : speed;
+        const sprite = this.add.image(x, y, `hazard-${spawn.kind}`).setDepth(6).setFlipX(vx < 0);
+        this.hazards.push({ kind: spawn.kind, sprite, x, y, vx, seed: Math.random() * 1000, calmUntil: 0 });
+      }
+    }
   }
 
   private setupInput(): void {
@@ -245,13 +460,17 @@ export class FishingScene extends Phaser.Scene {
     this.stats = fishingStats();
     // Town services: Net Makers add hook capacity, Lighthouse keepers run the sonar.
     this.stats.capacity += hookBonus();
+    // A boat's winch lets out extra line, but the line never goes past the sea floor.
+    this.stats.lineLength = Math.min(this.stats.lineLength + this.area.lineBonus, this.area.depth);
     this.sonar = sonarRange();
     this.market = marketBonus();
     for (const f of [...this.fish, ...this.caught]) f.sprite.destroy();
     this.fish = [];
     this.caught = [];
     this.activeBait = undefined;
+    this.stunnedUntil = 0;
     this.spawnFish();
+    this.spawnHazards();
 
     this.hookX = HOOK_REST.x;
     this.hookY = HOOK_REST.y;
@@ -264,12 +483,14 @@ export class FishingScene extends Phaser.Scene {
     this.hookText.setText('');
     this.refreshHud();
     this.refreshBaitButton();
+    this.refreshAreaButton();
   }
 
   private cast(): void {
     this.phase = 'descending';
     this.activeBait = consumeBait();
     this.baitButton.setVisible(false);
+    this.refreshAreaButton();
     this.shieldsLeft = this.stats.shields;
     this.invulnerableUntil = 0;
     this.promptText.setVisible(false);
@@ -314,8 +535,8 @@ export class FishingScene extends Phaser.Scene {
   private spawnFish(): void {
     // The bait you're about to use is already in the water, luring fish.
     const bait = readyBait();
-    const density = FISH_DENSITY * (bait?.density ?? 1);
-    for (let seg = 0; seg < WORLD_DEPTH_M; seg += 10) {
+    const density = this.area.density * (bait?.density ?? 1);
+    for (let seg = 0; seg < this.area.depth; seg += 10) {
       const n = Math.floor(density + Math.random());
       for (let i = 0; i < n; i++) {
         const depth = seg + Math.random() * 10;
@@ -332,7 +553,7 @@ export class FishingScene extends Phaser.Scene {
   }
 
   private pickFishType(depth: number, bait?: BaitDef): FishType | undefined {
-    const options = FISH.filter((f) => depth >= f.minDepth && depth <= f.maxDepth);
+    const options = FISH.filter((f) => f.area === this.area.id && depth >= f.minDepth && depth <= f.maxDepth);
     const weight = (f: FishType) => f.weight * (bait?.attract[f.id] ?? 1);
     let roll = Math.random() * options.reduce((sum, f) => sum + weight(f), 0);
     for (const f of options) {
@@ -340,6 +561,73 @@ export class FishingScene extends Phaser.Scene {
       if (roll <= 0) return f;
     }
     return options[options.length - 1];
+  }
+
+  private updateHazards(dt: number, t: number): void {
+    for (const h of this.hazards) {
+      h.x += h.vx * dt;
+      const half = h.sprite.width / 2;
+      if (h.x < half && h.vx < 0) h.vx = -h.vx;
+      if (h.x > GAME_WIDTH - half && h.vx > 0) h.vx = -h.vx;
+      // Jellyfish pulse up and down; sharks and ice just drift.
+      const bob = h.kind === 'jelly' ? Math.sin(t * 1.2 + h.seed) * 34 : Math.sin(t + h.seed) * 3;
+      h.sprite.setPosition(h.x, h.y + bob);
+      if (h.kind !== 'jelly') h.sprite.setFlipX(h.vx < 0);
+    }
+  }
+
+  private hazardTouchingHook(): Hazard | undefined {
+    for (const h of this.hazards) {
+      const dx = h.sprite.x - this.hookX;
+      const dy = h.sprite.y - this.hookY;
+      const rx = h.sprite.width / 2 + HOOK_RADIUS * 0.5;
+      const ry = h.sprite.height / 2 + HOOK_RADIUS * 0.5;
+      if ((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1) return h;
+    }
+    return undefined;
+  }
+
+  /**
+   * Bumping into a hazard. Sharks and ice stop the line on the way down; on the way up a shark
+   * bites the lowest fish off the hook. Jellyfish sting either way, freezing your steering.
+   * Returns true when the descent is over.
+   */
+  private hitHazard(h: Hazard, time: number): boolean {
+    if (time < h.calmUntil || time < this.invulnerableUntil) return false;
+    if (h.kind === 'jelly') {
+      h.calmUntil = time + 1500;
+      this.stunnedUntil = time + STING_SECONDS * 1000;
+      this.cameras.main.shake(100, 0.005);
+      this.popText('Stung!', '#e7b6f7');
+      return false;
+    }
+    if (this.phase === 'ascending') {
+      if (h.kind !== 'shark' || this.caught.length === 0) return false;
+      const lost = this.caught.pop()!;
+      lost.sprite.destroy();
+      h.calmUntil = time + 2500;
+      h.vx = -h.vx * 1.4;
+      this.cameras.main.shake(120, 0.006);
+      this.popText(`Shark! −${lost.type.name}`, '#ff8a8a');
+      return false;
+    }
+    // Lucky Lure dodges a shark, but there's no dodging solid ice.
+    if (h.kind === 'shark' && this.shieldsLeft > 0) {
+      this.shieldsLeft--;
+      this.invulnerableUntil = time + 700;
+      h.calmUntil = time + 1000;
+      this.cameras.main.shake(80, 0.004);
+      return false;
+    }
+    h.calmUntil = time + 1500;
+    this.cameras.main.shake(120, 0.006);
+    this.popText(h.kind === 'ice' ? 'Ice!' : 'Shark!', '#ffffff');
+    return true;
+  }
+
+  private popText(text: string, color: string): void {
+    const pop = makeText(this, this.hookX, this.hookY - 24, text, 18).setOrigin(0.5).setDepth(20).setColor(color);
+    this.tweens.add({ targets: pop, y: pop.y - 50, alpha: 0, duration: 900, onComplete: () => pop.destroy() });
   }
 
   private updateFish(dt: number, t: number): void {
@@ -384,9 +672,13 @@ export class FishingScene extends Phaser.Scene {
     for (const t of takeQuestToasts()) showToast(this, t);
     if (this.phase === 'idle' && !this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined));
     this.updateFish(dt, t);
+    this.updateHazards(dt, t);
 
-    if (this.phase === 'descending' || this.phase === 'ascending') {
-      this.steerHook(dt);
+    const casting = this.phase === 'descending' || this.phase === 'ascending';
+    if (casting && time >= this.stunnedUntil) this.steerHook(dt);
+    if (casting) {
+      const h = this.hazardTouchingHook();
+      if (h && this.hitHazard(h, time) && this.phase === 'descending') this.startAscent();
     }
 
     if (this.phase === 'descending') {
@@ -426,6 +718,7 @@ export class FishingScene extends Phaser.Scene {
 
     this.updateCamera(dt);
     this.drawLineAndHook(time);
+    this.updateDarkness();
     this.drawSonar(time);
     this.refreshHud();
   }
@@ -466,6 +759,18 @@ export class FishingScene extends Phaser.Scene {
       tag.setColor(inPath ? '#ff8a8a' : COLORS.gold);
       used++;
     }
+    for (const h of this.hazards) {
+      const dy = h.sprite.y - this.hookY;
+      if (Math.abs(dy) > rangePx || Math.abs(h.sprite.x - this.hookX) > h.sprite.width / 2 + 40) continue;
+      g.lineStyle(3, 0xff5a5a, 0.4 + 0.5 * pulse).strokeEllipse(h.sprite.x, h.sprite.y, h.sprite.width + 16, h.sprite.height + 16);
+    }
+  }
+
+  /** Dark waters: the veil follows the hook and closes in as it sinks. */
+  private updateDarkness(): void {
+    if (!this.darkness) return;
+    const depthM = (this.hookY - SURFACE_Y) / PX_PER_M;
+    this.darkness.setPosition(this.hookX, this.hookY).setAlpha(Phaser.Math.Clamp((depthM - 15) / 60, 0, 0.97));
   }
 
   private steerHook(dt: number): void {
@@ -496,6 +801,8 @@ export class FishingScene extends Phaser.Scene {
     this.hook.setPosition(this.hookX, this.hookY);
     const blinking = time < this.invulnerableUntil && Math.floor(time / 80) % 2 === 0;
     this.hook.setAlpha(blinking ? 0.3 : 1);
+    if (time < this.stunnedUntil) this.hook.setTint(0xe7b6f7);
+    else this.hook.clearTint();
 
     const showShield = this.phase === 'descending' && this.shieldsLeft > 0;
     this.shieldRing.setVisible(showShield).setPosition(this.hookX, this.hookY);
@@ -531,6 +838,7 @@ export class FishingScene extends Phaser.Scene {
     const m = (this.modal = new Modal(this, 200 + rows * 34 + (bonus ? 26 : 0)));
 
     m.text(GAME_WIDTH / 2, m.top + 36, total > 0 ? 'Nice catch!' : 'Nothing this time', 28);
+    if (this.area.id !== 'harbor') m.text(GAME_WIDTH / 2, m.top + 62, this.area.name, 13).setAlpha(0.6);
     let y = m.top + 84;
     if (bonus) {
       m.text(GAME_WIDTH / 2, y - 12, `Bonuses: ${bonuses.join(', ')}`, 14).setAlpha(0.75);

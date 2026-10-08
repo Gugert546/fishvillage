@@ -92,7 +92,7 @@ Must be placed beside a filled canal; if the water goes away they stop working (
 | Fisherman's Hut | 3 | 2 | $9/min per worker |
 | Fish Market | 4 | 4 | +5% dock sale price per worker (+6% / +7% at Lv2/3) |
 | Water Mill | 4 | 2 | +10% income per worker for earning workplaces within 6 tiles (also boosts Fillet Houses) |
-| Boatyard | 5 | 4 | Just the building for now — will unlock the Open Sea |
+| Boatyard | 5 | 4 | Sells boats for new fishing areas (needs a worker) |
 | Bathhouse | 5 | 4 | +5 mood per worker for homes within 6 tiles (+6 / +7 at Lv2/3) |
 | Seafood Restaurant | 6 | 4 | $20/min per worker, +2 mood per worker nearby |
 
@@ -117,7 +117,37 @@ Kinds: catch N of a fish · fill the hook in one cast · earn $N from fishing ·
 - **Alive:** villagers walking home ↔ work, chimney smoke, shopkeeper in the door, "Help wanted!" signs.
 - Existing saves get a few starter residents so they keep earning.
 
-## Roadmap
+## Fishing areas & boats
+
+Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (town Lv 5, needs at least one worker). Bought boats are moored at the dock; tap one (or the area button on the dock) to sail there. Each area has its own fish, water colours and a hazard.
+
+| Area | Boat | Town Lv | Price | Hazard | Highlights |
+|---|---|---|---|---|---|
+| Harbor | – | 1 | – | – | Sardine → Anglerfish |
+| Open Sea | Fishing Boat | 5 | $25k | **Sharks**: stop the line on the way down, bite a fish off the hook on the way up | fast fish, Marlin |
+| Coral Reef | Catamaran | 5 | $90k | **Jellyfish**: sting = hook stunned for a moment | packed with colourful fish |
+| Deep Trench | Trawler | 6 | $300k | **Darkness**: you only see near the hook (Lighthouse sonar still tags fish) | winch adds +120 m line, Coelacanth |
+| Arctic Waters | Icebreaker | 6 | $1M | **Ice floes**: block the line on the way down (Lucky Lure doesn't help) | priciest fish, Ghost Fish |
+
+## Plans
+
+**Phase 1 — Boats & fishing areas** ✅ (see above). Balance after playtesting.
+
+**Phase 2 — Fishing gives what the town can't**
+- Fish logbook / Aquarium: first catch of each species fills the logbook; completing an area's page gives a permanent bonus.
+- One legendary fish per area: rare, hard to catch, shown as a trophy in town.
+- Fish as materials: late buildings/upgrades also need specific fish ("10 Tuna").
+
+**Phase 3 — Long-term goals & money sinks** (no prestige / resets)
+- Town levels 7–10 with new buildings (Cannery, Export Docks: fish → goods → trade ships).
+- Landmarks: a few very expensive one-off monuments with town-wide bonuses.
+- **Perk tree**: perk points earned from logbook milestones, legendary fish, landmarks and new town levels; spent on permanent perks (sale price, reel speed, offline cap, move-in speed…).
+
+**Phase 4 — Life & atmosphere**: day/night, weather (rain helps fishing, storms close the harbor), daily quest, fish of the day, sound & music, real art.
+
+**Phase 5 — Ship to iPhone**: Capacitor, Codemagic cloud build, TestFlight (needs the Apple Developer account).
+
+## Done so far
 
 1. ~~Project setup, game state, save/load~~
 2. ~~Fishing scene: descent, ascent, catching, selling, zones, ~6 fish~~
@@ -126,10 +156,10 @@ Kinds: catch N of a fish · fill the hook in one cast · earn $N from fishing ·
 5. ~~Fishing upgrades sold by shops; shop level caps upgrade level~~
 6. ~~Move buildings (free) and sell them (50% refund of everything spent)~~
 7. ~~Town life A: 14×14 grid (30px tiles), Cottage/Apartment, residents, jobs (auto + staff/priority), worker-based income, closed shops~~
-8. ~~Town life B: happiness (per resident, 50% neutral), decorations with area effect, road painting tool, range preview, income/move-in bonuses~~
+8. ~~Town life B: happiness, decorations with area effect, road painting tool, range preview, income/move-in bonuses~~
 9. ~~Town life C: walking villagers (road-preferring pathfinding), shopkeepers, chimney smoke, lamp/fountain animation~~
-10. Playtest & tune (`src/config.ts`), then content: Smokehouse, Aquarium, boats/new spots, quests, sound, art
-   - Open: bigger building sizes, crisp rendering on high-DPI screens
+10. ~~Your house & town levels, bait, Fillet House, residents list, service buildings, quests, canals, pier, waterside buildings~~
+   - Open: crisp rendering on high-DPI screens
 
 ## Dev tips
 

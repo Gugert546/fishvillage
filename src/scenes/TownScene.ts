@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  AREAS,
   BAITS,
   BAIT_BY_ID,
   BUILDINGS,
@@ -59,6 +60,10 @@ import {
 } from '../quests';
 import {
   baitUnlocked,
+  boatUnlocked,
+  boatyardOpen,
+  buyBoat,
+  ownsArea,
   buildCost,
   buyBait,
   buyUpgrade,
@@ -1579,7 +1584,7 @@ export class TownScene extends Phaser.Scene {
     if (def.sonarPerWorker) return `${jobText} · +${def.sonarPerWorker(1)}m sonar each`;
     if (def.dockPricePerWorker) return `${jobText} · +${Math.round(def.dockPricePerWorker(1) * 100)}% dock price each`;
     if (def.millPerWorker) return `${jobText} · +${def.millPerWorker.amount * 100}% nearby each`;
-    if (def.id === 'boatyard') return `${jobText} · coming soon`;
+    if (def.id === 'boatyard') return `${jobText} · builds boats`;
     return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/min each` : `${size} · ${jobText}`;
   }
 
@@ -1603,7 +1608,7 @@ export class TownScene extends Phaser.Scene {
       (isDecor ? 70 : 0) +
       (upgradable ? 70 : 0) +
       sells.length * 66 +
-      (def.id === 'baitShop' ? 66 : 0) +
+      (def.id === 'baitShop' || def.id === 'boatyard' ? 66 : 0) +
       130;
     const m = (this.modal = new Modal(this, height));
     const reopen = () => this.openBuildingPanel(b);
@@ -1753,6 +1758,15 @@ export class TownScene extends Phaser.Scene {
       y += 66;
     }
 
+    if (def.id === 'boatyard') {
+      const boats = AREAS.filter((a) => a.boat);
+      const owned = boats.filter(ownsArea).length;
+      m.text(40, y - 12, 'Boats', 18, 0);
+      m.text(40, y + 14, `${owned}/${boats.length} built · new fishing spots`, 14, 0).setAlpha(0.75);
+      m.add(makeButton(this, right, y, 110, 46, 'Boats ›', () => this.openBoatStore(b), COLORS.primary, 18));
+      y += 66;
+    }
+
     const actionsY = m.top + m.height - 92;
     m.add(
       makeButton(this, GAME_WIDTH * 0.3, actionsY, 160, 44, 'Move', () => {
@@ -1794,6 +1808,40 @@ export class TownScene extends Phaser.Scene {
     }
     if (!open) m.text(GAME_WIDTH / 2, y - 16, 'Closed: the Bait Shop needs a shopkeeper.', 14).setColor('#ff8a8a');
     m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Back', () => this.openBuildingPanel(shop), COLORS.neutral));
+  }
+
+  /** Boats for sale at the Boatyard; each one opens a new fishing area. */
+  private openBoatStore(yard: PlacedBuilding): void {
+    this.closeModal();
+    this.panelFor = undefined;
+    const boats = AREAS.filter((a) => a.boat);
+    const rowH = 96;
+    const m = (this.modal = new Modal(this, 170 + boats.length * rowH));
+    const open = boatyardOpen();
+    m.text(GAME_WIDTH / 2, m.top + 30, 'Boats', 26);
+    m.text(GAME_WIDTH / 2, m.top + 62, 'Bought boats wait at the dock. Tap one to sail.', 14).setAlpha(0.8);
+
+    let y = m.top + 124;
+    for (const area of boats) {
+      const owned = ownsArea(area);
+      const unlocked = boatUnlocked(area);
+      m.add(this.add.rectangle(48, y - 30, 26, 14, area.hull ?? 0xffffff).setStrokeStyle(2, area.cabin ?? 0x000000).setAlpha(unlocked ? 1 : 0.35));
+      m.text(74, y - 30, `${area.boat}`, 18, 0);
+      m.text(74, y - 18, `${area.name}: ${area.blurb}`, 13, 0)
+        .setOrigin(0, 0)
+        .setColor(COLORS.gold)
+        .setWordWrapWidth(GAME_WIDTH - 200);
+      if (!unlocked) m.text(74, y + 32, `Unlocks at house level ${area.unlockLevel}`, 12, 0).setColor('#ffb4a2');
+      const label = owned ? 'Owned' : !unlocked ? `Lv ${area.unlockLevel}` : !open ? 'Closed' : `$${formatCoins(area.cost)}`;
+      const btn = makeButton(this, GAME_WIDTH - 84, y - 8, 100, 46, label, () => {
+        if (buyBoat(area)) this.openBoatStore(yard);
+      }, COLORS.buy, 18);
+      btn.setEnabledLook(!owned && unlocked && open && state.coins >= area.cost, COLORS.buy);
+      m.add(btn);
+      y += rowH;
+    }
+    if (!open) m.text(GAME_WIDTH / 2, y - 16, 'Closed: the Boatyard needs a worker and water.', 14).setColor('#ff8a8a');
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Back', () => this.openBuildingPanel(yard), COLORS.neutral));
   }
 
   /** Your house: the town level, what the next level needs, and what it unlocks. */
@@ -1872,7 +1920,10 @@ export class TownScene extends Phaser.Scene {
       const nearby = state.buildings.filter((x) => x !== b && defOf(x).incomePerWorker && tileGap(b, x) <= def.millPerWorker!.radius).length;
       return `+${Math.round(def.millPerWorker.amount * workers * 100)}% for ${nearby} workplace${nearby === 1 ? '' : 's'} within ${def.millPerWorker.radius} tiles`;
     }
-    if (def.id === 'boatyard') return 'Building a boat for the Open Sea (coming soon!)';
+    if (def.id === 'boatyard') {
+      const next = AREAS.find((a) => a.boat && !ownsArea(a));
+      return next ? `Ready to build a ${next.boat} for the ${next.name}` : 'Every boat is built!';
+    }
     return undefined;
   }
 
