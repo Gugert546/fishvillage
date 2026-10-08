@@ -50,6 +50,8 @@ function spareFish(): string | undefined {
   let best: string | undefined;
   let most = 0;
   for (const id of Object.keys(state.crates)) {
+    // Legendaries are too precious to can.
+    if (FISH.find((f) => f.id === id)?.legendary) continue;
     const spare = onIce(id) - reservedFish(id);
     if (spare > most) {
       most = spare;

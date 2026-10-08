@@ -192,8 +192,8 @@ export const HAZARD_INFO: Record<HazardKind, { name: string; width: number; heig
 export const STING_SECONDS = 1.1;
 
 // ---------------------------------------------------------------------- Bait
-// Bought in packs at the Bait Shop; one is used per cast. Bait raises what fish sell for and
-// lures better fish: more fish overall, and some species much more often.
+// Bought in packs at the Bait Shop; one is used per cast. Bait lures fish: more fish overall,
+// and some species much more often.
 
 export type BaitId = 'worm' | 'shrimp' | 'squid' | 'glow';
 
@@ -206,8 +206,6 @@ export interface BaitDef {
   unlockLevel: number;
   packSize: number;
   packCost: number;
-  /** Extra sale price, e.g. 0.1 = +10%. */
-  sellBonus: number;
   /** Multiplier on how many fish spawn. */
   density: number;
   /** Multipliers on spawn weight per fish id. */
@@ -216,10 +214,10 @@ export interface BaitDef {
 }
 
 export const BAITS: BaitDef[] = [
-  { id: 'worm', name: 'Worms', lures: 'More bites', unlockLevel: 2, packSize: 5, packCost: 20, sellBonus: 0.1, density: 1.15, attract: {}, color: 0xe07a8f },
-  { id: 'shrimp', name: 'Shrimp', lures: 'Lures Cod & Salmon', unlockLevel: 3, packSize: 5, packCost: 75, sellBonus: 0.15, density: 1.1, attract: { cod: 2, salmon: 2, seaBass: 2, parrotfish: 2, hatchetfish: 1.5 }, color: 0xf4a261 },
-  { id: 'squid', name: 'Squid', lures: 'Lures Tuna', unlockLevel: 4, packSize: 5, packCost: 250, sellBonus: 0.2, density: 1.1, attract: { tuna: 2.5, salmon: 1.5, swordfish: 2, lionfish: 2, snowCrab: 2, giantSquid: 1.5 }, color: 0xcdb4db },
-  { id: 'glow', name: 'Glow Bait', lures: 'Lures Anglerfish', unlockLevel: 5, packSize: 5, packCost: 800, sellBonus: 0.25, density: 1.1, attract: { angler: 4, tuna: 1.5, marlin: 2, grouper: 2, coelacanth: 2, ghostFish: 2 }, color: 0xb9fbc0 },
+  { id: 'worm', name: 'Worms', lures: '30% more bites', unlockLevel: 2, packSize: 5, packCost: 20, density: 1.3, attract: {}, color: 0xe07a8f },
+  { id: 'shrimp', name: 'Shrimp', lures: 'Lures Cod & Salmon ×3', unlockLevel: 3, packSize: 5, packCost: 75, density: 1.2, attract: { cod: 3, salmon: 3, seaBass: 3, parrotfish: 3, hatchetfish: 2 }, color: 0xf4a261 },
+  { id: 'squid', name: 'Squid', lures: 'Lures Tuna ×4', unlockLevel: 4, packSize: 5, packCost: 250, density: 1.2, attract: { tuna: 4, salmon: 2, swordfish: 3, lionfish: 3, snowCrab: 3, giantSquid: 2 }, color: 0xcdb4db },
+  { id: 'glow', name: 'Glow Bait', lures: 'Lures Anglerfish ×6', unlockLevel: 5, packSize: 5, packCost: 800, density: 1.2, attract: { angler: 6, tuna: 2, marlin: 3, grouper: 3, coelacanth: 3, ghostFish: 3 }, color: 0xb9fbc0 },
 ];
 
 export const BAIT_BY_ID = Object.fromEntries(BAITS.map((b) => [b.id, b])) as Record<BaitId, BaitDef>;
@@ -484,7 +482,7 @@ export interface BuildingDef {
   speciesIncomePerWorker?: (level: number) => number;
   /** Trophy decor: only buildable once this (legendary) fish has been caught. */
   trophy?: string;
-  /** Icehouse: fish it can keep at a given level. */
+  /** Icehouse: extra fish storage at a given level. */
   crateCapacity?: (level: number) => number;
   /** Cannery: spare fish each worker cans per minute. */
   cansPerWorker?: (level: number) => number;
@@ -992,7 +990,7 @@ BUILDINGS.push({
 BUILDINGS.push({
   id: 'icehouse',
   name: 'Icehouse',
-  description: 'Keeps fish on ice for orders and upgrades.',
+  description: 'Keeps more of your catch: +100 / +250 / +500 fish.',
   category: 'work',
   menuTab: 'services',
   w: 2,
@@ -1005,7 +1003,7 @@ BUILDINGS.push({
   maxLevel: 3,
   unlockLevel: 3,
   upgradeCost: (l) => Math.round(2_000 * Math.pow(2.5, l - 1)),
-  crateCapacity: (l) => [0, 40, 90, 160][l] ?? 160,
+  crateCapacity: (l) => [0, 100, 250, 500][l] ?? 500,
 });
 
 BUILDINGS.push({
@@ -1114,7 +1112,7 @@ const scaled = (base: number) => (level: number) => Math.round(base * (1 + 0.6 *
 
 export const MERCHANT_ITEMS: MerchantItem[] = [
   { id: 'goldenLure', name: 'Golden Lure', description: "Next cast: the area's legendary is waiting (if your line reaches it)", price: scaled(6_000), charges: 1 },
-  { id: 'voucher', name: 'Market Voucher', description: 'Fish sell for double on your next 5 casts', price: scaled(3_000), charges: 5 },
+  { id: 'voucher', name: 'Market Voucher', description: 'Your next fish sale pays +50%', price: scaled(4_000), charges: 1 },
   { id: 'goldenNet', name: 'Golden Net', description: '+3 fish on the hook for 10 casts', price: scaled(2_500), charges: 10 },
   { id: 'ancientChart', name: 'Ancient Chart', description: '+1 perk point, for good', price: (_, bought) => 250_000 * (1 + bought), limit: 3 },
   { id: 'palm', name: 'Exotic Palm', description: 'Decoration: +10 mood within 3 tiles', price: scaled(1_500) },
@@ -1213,6 +1211,19 @@ export const PERK_BY_ID = Object.fromEntries(PERKS.map((p) => [p.id, p])) as Rec
 export const PERK_TIER_POINTS = [0, 0, 2, 4];
 /** A perk point for every this many species in the logbook. */
 export const SPECIES_PER_PERK_POINT = 10;
+
+// -------------------------------------------------------------- Selling fish
+// Every catch goes into barrels on the dock; you sell when (and what) you like.
+
+export const STORAGE = {
+  /** Fish the dock barrels hold from the start (the Icehouse adds more). */
+  barrels: 50,
+  /** Fish that don't fit are sold on the spot at this share of the price. */
+  overflowPrice: 0.5,
+  /** Each species' price for the day swings between these (× normal). */
+  dailyMin: 0.6,
+  dailyMax: 1.6,
+};
 
 // ------------------------------------------------------------------- Orders
 // Staffed shops ask for fish from the Icehouse. Each delivery makes that building earn more, for good.

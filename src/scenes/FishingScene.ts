@@ -2,7 +2,6 @@ import Phaser from 'phaser';
 import {
   AREAS,
   FISH,
-  FISH_PRICE_BONUS_PER_LEVEL,
   FULL_HOOK_RAMP_SECONDS,
   FULL_HOOK_REEL_MULTIPLIER,
   GAME_HEIGHT,
@@ -11,7 +10,6 @@ import {
   HOOK_STEER_SPEED,
   HAZARD_INFO,
   WORLD,
-  FESTIVAL,
   LEGENDARY,
   LOGBOOK_PAGE_BONUS,
   PX_PER_M,
@@ -23,22 +21,22 @@ import {
   type FishType,
   type FishingStats,
 } from '../config';
-import { fishingStats, save, state } from '../state';
+import { fishingStats, state } from '../state';
 import { tickEconomy } from '../economy';
 import { questEvent, takeQuestToasts } from '../quests';
-import { hookBonus, marketBonus, sonarRange } from '../services';
+import { hookBonus, sonarRange } from '../services';
 import { boatUnlocked, consumeBait, currentArea, cycleBait, ownsArea, readyBait, sailTo, stormBound, townLevel } from '../town';
 import { makeDarknessTexture, makeTextures } from '../textures';
 import { preloadSprites } from '../sprites';
 import { Art } from '../art/kit';
 import { PAL, Pix, pixImage, pixTexture } from '../pixel';
-import { completePages, discovered, legendOf, logbookBonus } from '../logbook';
-import { crateCapacity, cratesUsed, storeFish, unstoreFish, wantedFish } from '../crates';
+import { completePages, discovered, legendOf } from '../logbook';
+import { crateCapacity, cratesUsed } from '../crates';
+import { dailyFactor, salePrice, sellFish, stowCatch, type CatchResult } from '../market';
 import { landmarkBonus, perkBonus } from '../perks';
 import { Atmosphere } from '../atmosphere';
 import { sfx } from '../sound';
 import { fishOfTheDay, isNight, weather } from '../world';
-import { festivalBonus } from '../festival';
 import { useCharm } from '../merchant';
 import { projectDone } from '../projects';
 import {
@@ -53,6 +51,7 @@ import {
   onTap,
   formatCoins,
   openLogbook,
+  openMarket,
   openSettings,
   showOfflineEarnings,
   showToast,
@@ -137,15 +136,10 @@ export class FishingScene extends Phaser.Scene {
   private promptText!: Phaser.GameObjects.Text;
   private townButton!: Phaser.GameObjects.Container;
   private baitButton!: Button;
-  /** Bait used on the current cast (sale bonus); fish in the water were lured by it too. */
-  private activeBait?: BaitDef;
   /** Lighthouse sonar range in metres (0 = none). */
   private sonar = 0;
-  /** Fish Market sale bonus for this visit to the dock. */
-  private market = 0;
-  /** Merchant charms used on this cast. */
-  private voucher = false;
   private charmsText!: Phaser.GameObjects.Text;
+  private barrelsButton!: Button;
   private sonarGfx!: Phaser.GameObjects.Graphics;
   private sonarTags: Phaser.GameObjects.Text[] = [];
   private modal?: Modal;
@@ -272,6 +266,12 @@ export class FishingScene extends Phaser.Scene {
       for (let x = 22; x < 176; x += 24) view.fillRect(x, deckY, 2, 10);
       view.fillStyle(PAL.bark);
       for (let x = 10; x < 176; x += 24) view.fillRect(x, deckY + 6, 2, 2);
+      // Barrels for the catch, stacked at the end of the dock
+      for (const [bx, top] of [[6, deckY - 28], [34, deckY - 28], [20, deckY - 54]] as [number, number][]) {
+        view.fillStyle(PAL.brown).fillRect(bx, top, 24, 26);
+        view.fillStyle(PAL.clay).fillRect(bx + 2, top, 6, 26);
+        view.fillStyle(PAL.bark).fillRect(bx, top + 4, 24, 2).fillRect(bx, top + 20, 24, 2);
+      }
     } else {
       if (area.id === 'arctic') {
         // Floating ice on the surface
@@ -438,6 +438,11 @@ export class FishingScene extends Phaser.Scene {
         if (this.phase === 'idle' && !this.modal) openLogbook(this, (m) => (this.modal = m), this.areaPage());
       }, COLORS.neutral, 15),
     );
+    this.barrelsButton = hud(
+      makeButton(this, 62, 124, 104, 36, '', () => {
+        if (this.phase === 'idle' && !this.modal) openMarket(this, (m) => (this.modal = m), 0, () => this.refreshHud());
+      }, COLORS.neutral, 14),
+    );
     this.areaButton = hud(
       makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 184, 240, 46, '', () => this.openAreaPicker(), COLORS.neutral, 18),
     );
@@ -488,6 +493,8 @@ export class FishingScene extends Phaser.Scene {
 
   private refreshAreaButton(): void {
     this.logbookButton.setVisible(this.phase === 'idle');
+    this.barrelsButton.setVisible(this.phase === 'idle');
+    this.barrelsButton.setLabel(`Barrels ${cratesUsed()}/${crateCapacity()}`);
     const show = this.phase === 'idle' && (state.boats.length > 0 || townLevel() >= 5);
     this.areaButton.setVisible(show);
     this.areaButton.setLabel(`Spot: ${this.area.name}`);
@@ -556,12 +563,9 @@ export class FishingScene extends Phaser.Scene {
     // A boat's winch lets out extra line, but the line never goes past the sea floor.
     this.stats.lineLength = Math.min(this.stats.lineLength + this.area.lineBonus, this.area.depth);
     this.sonar = sonarRange();
-    this.market = marketBonus();
     for (const f of [...this.fish, ...this.caught]) f.sprite.destroy();
     this.fish = [];
     this.caught = [];
-    this.activeBait = undefined;
-    this.voucher = false;
     this.stunnedUntil = 0;
     this.spawnFish();
     this.spawnHazards();
@@ -589,7 +593,7 @@ export class FishingScene extends Phaser.Scene {
 
   private cast(): void {
     this.phase = 'descending';
-    this.activeBait = consumeBait();
+    consumeBait();
     this.baitButton.setVisible(false);
     this.refreshAreaButton();
     this.shieldsLeft = this.stats.shields;
@@ -600,7 +604,6 @@ export class FishingScene extends Phaser.Scene {
     this.charmsText.setVisible(false);
     // Merchant charms: the lure was already used to stock the water, the rest apply to this cast.
     if (this.fish.some((f) => f.type.legendary)) useCharm('goldenLure');
-    this.voucher = useCharm('voucher');
     if (useCharm('goldenNet')) this.stats.capacity += 3;
     sfx.cast();
     this.topBar.setSettingsVisible(false);
@@ -618,26 +621,15 @@ export class FishingScene extends Phaser.Scene {
     const counts = new Map<FishType, number>();
     const fresh = new Set(this.caught.filter((f) => !discovered(f.type.id)).map((f) => f.type));
     const pagesBefore = completePages();
-    let total = 0;
     for (const f of this.caught) {
       counts.set(f.type, (counts.get(f.type) ?? 0) + 1);
-      total += this.priceOf(f.type);
       state.caught[f.type.id] = (state.caught[f.type.id] ?? 0) + 1;
     }
-    // Fish that orders (or the next house level) still need go on ice; the rest is sold.
-    const kept = new Map<FishType, number>();
-    for (const [type, n] of counts) {
-      if (type.legendary) continue;
-      const k = storeFish(type.id, Math.min(n, wantedFish(type.id)));
-      if (k > 0) kept.set(type, k);
-    }
-    let sold = total;
-    for (const [type, k] of kept) sold -= this.priceOf(type) * k;
-    state.coins += sold;
-    questEvent({ type: 'cast', fish: this.caught.map((f) => f.type.id), coins: total });
-    save();
+    questEvent({ type: 'cast', fish: this.caught.map((f) => f.type.id) });
+    // Everything goes into the barrels; what doesn't fit is sold cheaply on the spot.
+    const stowed = stowCatch(this.caught.map((f) => f.type));
     this.refreshHud();
-    if (total > 0) sfx.coins();
+    if (this.caught.length > 0) sfx.coins();
     for (const t of fresh) {
       if (t.legendary) {
         sfx.fanfare();
@@ -648,35 +640,14 @@ export class FishingScene extends Phaser.Scene {
     for (const id of completePages()) {
       if (!pagesBefore.has(id)) showToast(this, `Logbook page done: ${AREAS.find((a) => a.id === id)!.name} +${Math.round(LOGBOOK_PAGE_BONUS * 100)}%`);
     }
-    this.showResults(counts, kept, fresh);
+    this.showResults(counts, stowed, fresh);
   }
 
   // --------------------------------------------------------------- Fish
 
-  private houseBonus(): number {
-    return FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1);
-  }
-
-  /** A festival in town and the Fish Auction project. */
-  private townPrice(): number {
-    return festivalBonus(FESTIVAL.fishPrice) + (projectDone('fishAuction') ? 0.1 : 0);
-  }
-
-  /** Storms make fresh fish scarce. */
-  private stormPrice(): number {
-    return weather() === 'storm' ? WORLD.stormPrice : 0;
-  }
-
-  /** Sharp Hooks perk and the Fisher Statue. */
-  private perkPrice(): number {
-    return perkBonus('sharpHooks') + landmarkBonus('fishPrice');
-  }
-
-  /** Sale price including your house's level bonus, the Fish Market and this cast's bait. */
+  /** What a fish sells for right now. */
   private priceOf(type: FishType): number {
-    const today = type.id === fishOfTheDay().id ? WORLD.fishOfTheDayBonus : 0;
-    const bonus = this.houseBonus() + this.market + this.perkPrice() + this.stormPrice() + this.townPrice() + today + logbookBonus(type.area) + (this.activeBait?.sellBonus ?? 0);
-    return Math.round(type.value * (1 + bonus) * (this.voucher ? 2 : 1));
+    return salePrice(type);
   }
 
   private spawnFish(): void {
@@ -1045,81 +1016,53 @@ export class FishingScene extends Phaser.Scene {
   // ----------------------------------------------------------------- UI
 
   /**
-   * The catch, with a Sell / On ice toggle per fish once there's an Icehouse. Fish wanted for
-   * orders start out on ice; switching moves coins and fish back and forth right away.
+   * The catch, now in the barrels, with today's price for each fish. Sell this catch straight
+   * away, or keep it and sell later (from the Barrels button) when prices suit you.
    */
-  private showResults(counts: Map<FishType, number>, kept: Map<FishType, number>, fresh: Set<FishType>): void {
+  private showResults(counts: Map<FishType, number>, stowed: CatchResult, fresh: Set<FishType>): void {
     const rows = Math.max(1, counts.size);
-    const bonuses: string[] = [];
-    if (this.houseBonus() > 0) bonuses.push(`house +${Math.round(this.houseBonus() * 100)}%`);
-    if (this.market > 0) bonuses.push(`market +${Math.round(this.market * 100)}%`);
-    if (this.perkPrice() > 0) bonuses.push(`perks +${Math.round(this.perkPrice() * 100)}%`);
-    if (this.stormPrice() > 0) bonuses.push(`storm +${Math.round(this.stormPrice() * 100)}%`);
-    if (this.townPrice() > 0) bonuses.push(`town +${Math.round(this.townPrice() * 100)}%`);
-    if (this.voucher) bonuses.push('voucher ×2');
-    const logbook = logbookBonus(this.area.id);
-    if (logbook > 0) bonuses.push(`logbook +${Math.round(logbook * 100)}%`);
-    if (this.activeBait) bonuses.push(`${this.activeBait.name.toLowerCase()} +${Math.round(this.activeBait.sellBonus * 100)}%`);
-    const bonus = bonuses.length > 0;
-    const bonusText = `Bonuses: ${bonuses.join(', ')}`;
-    // Long lists of bonuses wrap onto a second line.
-    const bonusH = !bonus ? 0 : bonusText.length > 46 ? 44 : 26;
-    const ice = crateCapacity() > 0 && counts.size > 0;
-    const m = (this.modal = new Modal(this, 200 + rows * 38 + bonusH + (ice ? 26 : 0)));
-    const redraw = () => {
+    const over = [...stowed.overflow.values()].reduce((a, b) => a + b, 0);
+    const m = (this.modal = new Modal(this, 236 + rows * 38 + (over > 0 ? 24 : 0)));
+    const close = () => {
       m.destroy();
-      this.showResults(counts, kept, fresh);
+      this.modal = undefined;
+      this.refreshHud();
+      this.resetToDock();
     };
 
-    let sold = 0;
-    for (const [type, n] of counts) sold += this.priceOf(type) * (n - (kept.get(type) ?? 0));
     m.text(GAME_WIDTH / 2, m.top + 36, counts.size > 0 ? 'Nice catch!' : 'Nothing this time', 28);
     if (this.area.id !== 'harbor') m.text(GAME_WIDTH / 2, m.top + 62, this.area.name, 13).setAlpha(0.6);
-    let y = m.top + 84;
-    if (bonus) {
-      m.text(GAME_WIDTH / 2, y - 12 + (bonusH - 26) / 2, bonusText, 14).setAlpha(0.75).setAlign('center').setWordWrapWidth(GAME_WIDTH - 80);
-      y += bonusH;
-    }
+    let y = m.top + 96;
     if (counts.size === 0) m.text(GAME_WIDTH / 2, y, 'Steer into fish on the way up!', 18).setAlpha(0.8);
+    let value = 0;
     for (const [type, n] of [...counts].sort((a, b) => b[0].value - a[0].value)) {
-      const k = kept.get(type) ?? 0;
       const img = this.add.image(56, y, `fish-${type.id}`);
       m.add(img.setScale(Math.min(0.8, 52 / img.width)));
       if (fresh.has(type)) m.text(56, y + 14, 'NEW', 11).setColor('#8ee88e');
       else if (type.id === fishOfTheDay().id) m.text(56, y + 14, 'TODAY', 11).setColor(COLORS.gold);
       const name = m.text(92, y, `${type.name} ×${n}`, 16, 0);
       if (type.legendary) name.setColor(COLORS.gold);
-      m.text(GAME_WIDTH - 44, y, k === n ? 'on ice' : `$${this.priceOf(type) * (n - k)}`, 16, 1).setAlpha(k === n ? 0.7 : 1);
-      if (ice && !type.legendary) {
-        const label = k === 0 ? 'Sell' : k < n ? `Ice ${k}/${n}` : 'On ice';
-        const toggle = makeButton(this, GAME_WIDTH - 168, y, 86, 30, label, () => {
-          const price = this.priceOf(type);
-          if (k > 0) {
-            state.coins += price * unstoreFish(type.id, k);
-            kept.delete(type);
-          } else {
-            const put = storeFish(type.id, n);
-            state.coins -= price * put;
-            if (put > 0) kept.set(type, put);
-            else showToast(this, 'The Icehouse is full');
-          }
-          save();
-          redraw();
-        }, k > 0 ? COLORS.primary : COLORS.neutral, 14);
-        m.add(toggle);
-      }
+      const price = this.priceOf(type);
+      const factor = dailyFactor(type.id);
+      const trend = factor >= 1.05 ? ' ^' : factor <= 0.95 ? ' v' : '';
+      m.text(GAME_WIDTH - 44, y, `$${price}${trend}`, 16, 1).setColor(factor >= 1.05 ? '#8ee88e' : factor <= 0.95 ? '#ff8a8a' : '#ffffff');
+      value += price * (stowed.kept.get(type) ?? 0);
       y += 38;
     }
-    m.text(GAME_WIDTH / 2, y + 16, `+$${sold}`, 32).setColor(COLORS.gold);
-    if (ice) m.text(GAME_WIDTH / 2, y + 48, `Icehouse ${cratesUsed()}/${crateCapacity()} · tap to keep fish for orders`, 12).setAlpha(0.65);
-    m.add(
-      makeButton(this, GAME_WIDTH / 2, m.top + m.height - 40, 180, 48, 'Continue', () => {
-        m.destroy();
-        this.modal = undefined;
-        this.refreshHud();
-        this.resetToDock();
-      }),
-    );
+    if (over > 0) {
+      m.text(GAME_WIDTH / 2, y, `Barrels full: ${over} sold on the spot for $${formatCoins(stowed.overflowCoins)}`, 13).setColor('#ffb4a2');
+      y += 24;
+    }
+    m.text(GAME_WIDTH / 2, y + 6, `Barrels ${cratesUsed()}/${crateCapacity()}`, 14).setAlpha(0.75);
+
+    const btnY = m.top + m.height - 40;
+    const sell = makeButton(this, GAME_WIDTH * 0.3, btnY, 160, 48, value > 0 ? `Sell $${formatCoins(value)}` : 'Sell', () => {
+      const coins = sellFish([...stowed.kept].map(([type, n]) => [type.id, n]));
+      if (coins > 0) showToast(this, `+$${formatCoins(coins)}`);
+      close();
+    }, COLORS.buy, 18);
+    sell.setEnabledLook(value > 0, COLORS.buy);
+    m.add(sell, makeButton(this, GAME_WIDTH * 0.7, btnY, 160, 48, 'Keep', close, COLORS.primary, 18));
   }
 }
 

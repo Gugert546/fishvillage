@@ -3,6 +3,8 @@ import { AREAS, GAME_HEIGHT, GAME_WIDTH, LOGBOOK_PAGE_BONUS, type FishType } fro
 import { incomePerMinute, skipTime, takeOfflineReport } from './economy';
 import { townHappiness } from './happiness';
 import { discovered, legendOf, pageComplete, pageProgress, regularFish, speciesCount, totalSpecies } from './logbook';
+import { crateCapacity, cratesUsed } from './crates';
+import { dailyFactor, priceBonuses, salePrice, sellAll, sellType, stock, stockValue } from './market';
 import { housingCapacity } from './population';
 import { resetGame, save, state } from './state';
 import { setMusic, setSound, sfx } from './sound';
@@ -505,4 +507,77 @@ export function openLogbook(scene: Phaser.Scene, setModal: (m: Modal | undefined
     .setAlpha(done ? 1 : 0.75);
   m.text(GAME_WIDTH / 2, y + 36, `Species found: ${speciesCount()}/${totalSpecies()}`, 13).setAlpha(0.6);
   m.add(makeButton(scene, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', close, COLORS.neutral));
+}
+
+/**
+ * The barrels: every fish you're keeping, today's price for each (up or down on normal), and
+ * Sell buttons per species or for everything. Price bonuses apply at the moment you sell.
+ */
+export function openMarket(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void, page = 0, onClose?: () => void): void {
+  const rowH = 46;
+  const height = Math.min(GAME_HEIGHT - 110, 760);
+  const perPage = Math.max(1, Math.floor((height - 290) / rowH));
+  const items = stock();
+  const pages = Math.max(1, Math.ceil(items.length / perPage));
+  const p = Math.min(page, pages - 1);
+  const m = new Modal(scene, height);
+  setModal(m);
+  const close = () => {
+    m.destroy();
+    setModal(undefined);
+    onClose?.();
+  };
+  const reopen = (to = p) => {
+    m.destroy();
+    openMarket(scene, setModal, to, onClose);
+  };
+
+  m.text(GAME_WIDTH / 2, m.top + 30, 'Barrels', 26);
+  m.text(GAME_WIDTH / 2, m.top + 62, `${cratesUsed()}/${crateCapacity()} fish · worth $${formatCoins(stockValue())}`, 16).setColor(COLORS.gold);
+  const bonuses = items.length > 0 ? priceBonuses(items[0][0]).filter(([name]) => name !== 'logbook') : [];
+  const parts = bonuses.map(([name, v]) => `${name} +${Math.round(v * 100)}%`);
+  if ((state.charms.voucher ?? 0) > 0) parts.push('voucher +50%');
+  m.text(GAME_WIDTH / 2, m.top + 94, parts.length > 0 ? `Selling now: ${parts.join(', ')}` : "Prices change every day: sell what's up!", 16)
+    .setAlpha(0.8)
+    .setAlign('center')
+    .setWordWrapWidth(GAME_WIDTH - 70);
+
+  let y = m.top + 146;
+  if (items.length === 0) m.text(GAME_WIDTH / 2, y + 20, 'Empty. Go catch something!', 16).setAlpha(0.7);
+  for (const [type, n] of items.slice(p * perPage, (p + 1) * perPage)) {
+    const img = scene.add.image(54, y, `fish-${type.id}`);
+    m.add(img.setScale(Math.min(0.8, 48 / img.width)));
+    const name = m.text(84, y, `${type.name} ×${n}`, 16, 0);
+    if (type.legendary) name.setColor(COLORS.gold);
+    const factor = dailyFactor(type.id);
+    const trend = factor >= 1.05 ? ' ^' : factor <= 0.95 ? ' v' : '';
+    m.text(GAME_WIDTH - 128, y, `$${salePrice(type)}${trend}`, 16, 1).setColor(factor >= 1.05 ? '#63c74d' : factor <= 0.95 ? '#f6757a' : '#ffffff');
+    m.add(
+      makeButton(scene, GAME_WIDTH - 72, y, 92, 36, `$${formatCoins(salePrice(type) * n)}`, () => {
+        const coins = sellType(type);
+        if (coins > 0) showToast(scene, `+$${formatCoins(coins)}`);
+        reopen();
+      }, COLORS.buy, 16),
+    );
+    y += rowH;
+  }
+
+  const footY = m.top + m.height - 92;
+  if (pages > 1) {
+    const prev = makeButton(scene, 62, footY, 64, 40, '<', () => p > 0 && reopen(p - 1), COLORS.neutral, 16);
+    const next = makeButton(scene, GAME_WIDTH - 62, footY, 64, 40, '>', () => p < pages - 1 && reopen(p + 1), COLORS.neutral, 16);
+    prev.setEnabledLook(p > 0, COLORS.neutral);
+    next.setEnabledLook(p < pages - 1, COLORS.neutral);
+    m.add(prev, next);
+  }
+  const all = makeButton(scene, GAME_WIDTH / 2, footY, 200, 44, `Sell all $${formatCoins(stockValue())}`, () => {
+    const coins = sellAll();
+    if (coins > 0) {
+      sfx.coins();
+      showToast(scene, `+$${formatCoins(coins)}`);
+    }
+    reopen(0);
+  }, COLORS.buy, 16);
+  all.setEnabledLook(items.length > 0, COLORS.buy);
+  m.add(all, makeButton(scene, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', close, COLORS.neutral));
 }

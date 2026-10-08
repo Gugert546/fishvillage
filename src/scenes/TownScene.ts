@@ -71,6 +71,7 @@ import { canningRate, secondsToShip, shipCapacity, takeShipVisits } from '../tra
 import { ATMOSPHERE_DEPTH, Atmosphere } from '../atmosphere';
 import { festivalActive, festivalCost, festivalMinutesLeft, hostFestival } from '../festival';
 import { boughtThisVisit, buyItem, itemPrice, merchantHere, merchantMinutes, merchantStock } from '../merchant';
+import { stockValue } from '../market';
 import { fundProject, nextChunk, projectFunded, projectUnlocked } from '../projects';
 import { sfx } from '../sound';
 import {
@@ -86,7 +87,6 @@ import {
   orderTitle,
   ordersUnlocked,
   readyOrders,
-  sellCrates,
   upgradeNeed,
 } from '../crates';
 import { hookBonus, marketBonus, millBoost, offlineCapHours, sonarRange } from '../services';
@@ -144,6 +144,7 @@ import {
   makeText,
   onTap,
   openLogbook,
+  openMarket,
   openSettings,
   showOfflineEarnings,
   showToast,
@@ -1338,19 +1339,16 @@ export class TownScene extends Phaser.Scene {
     m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral));
   }
 
-  /** Orders from shops: fish from the Icehouse for coins and a lasting income boost. */
+  /** Orders from shops: fish from your barrels for coins and a lasting income boost. */
   private openOrders(): void {
     this.leaveModes();
     const cardH = 118;
     const unlocked = ordersUnlocked();
     const m = (this.modal = new Modal(this, 170 + Math.max(1, state.orders.length) * cardH));
     this.boardTabs(m, 'orders');
-    const cap = crateCapacity();
     const sub = !unlocked
       ? `Orders start at house level ${ORDERS.unlockLevel}`
-      : cap === 0
-        ? 'Build an Icehouse to keep fish for orders'
-        : `Each delivery: +${ORDERS.boostPerDelivery * 100}% income there, for good · Icehouse ${cratesUsed()}/${cap}`;
+      : `Each delivery: +${ORDERS.boostPerDelivery * 100}% income there, for good · Barrels ${cratesUsed()}/${crateCapacity()}`;
     m.text(GAME_WIDTH / 2, m.top + 70, sub, 13).setAlpha(0.8).setWordWrapWidth(GAME_WIDTH - 70).setAlign('center');
     if (unlocked && state.orders.length === 0) m.text(GAME_WIDTH / 2, m.top + 120, 'No orders right now. Check back soon!', 16).setAlpha(0.8);
 
@@ -1488,30 +1486,6 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  /** What's on ice, with a way to sell it all. */
-  private openIcehouse(b: PlacedBuilding): void {
-    this.closeModal();
-    this.panelFor = undefined;
-    const entries = Object.entries(state.crates).filter(([, n]) => n > 0).sort((a, z) => z[1] - a[1]);
-    const rowH = 30;
-    const m = (this.modal = new Modal(this, 220 + Math.max(1, Math.ceil(entries.length / 2)) * rowH));
-    m.text(GAME_WIDTH / 2, m.top + 30, 'On ice', 26);
-    m.text(GAME_WIDTH / 2, m.top + 62, `${cratesUsed()}/${crateCapacity()} fish · keep them from the catch screen`, 13).setAlpha(0.8);
-    if (entries.length === 0) m.text(GAME_WIDTH / 2, m.top + 110, 'Empty', 16).setAlpha(0.6);
-    entries.forEach(([id, n], i) => {
-      const x = i % 2 === 0 ? 50 : GAME_WIDTH / 2 + 10;
-      m.text(x, m.top + 104 + Math.floor(i / 2) * rowH, `${fishName(id)} ×${n}`, 16, 0);
-    });
-    const value = entries.reduce((sum, [id, n]) => sum + FISH.find((f) => f.id === id)!.value * n, 0);
-    const sell = makeButton(this, GAME_WIDTH / 2, m.top + m.height - 92, 200, 44, `Sell all $${formatCoins(value)}`, () => {
-      const coins = sellCrates();
-      if (coins > 0) showToast(this, `+$${formatCoins(coins)}`);
-      this.openIcehouse(b);
-    }, COLORS.danger, 18);
-    sell.setEnabledLook(value > 0, COLORS.danger);
-    m.add(sell, makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Back', () => this.openBuildingPanel(b), COLORS.neutral));
-  }
-
   private openSettingsMenu(): void {
     this.leaveModes();
     openSettings(this, (m) => (this.modal = m));
@@ -1618,7 +1592,7 @@ export class TownScene extends Phaser.Scene {
     if (def.dockPricePerWorker) return `${jobText} · +${Math.round(def.dockPricePerWorker(1) * 100)}% dock price each`;
     if (def.millPerWorker) return `${jobText} · +${def.millPerWorker.amount * 100}% nearby each`;
     if (def.id === 'boatyard') return `${jobText} · builds boats`;
-    if (def.crateCapacity) return `${size} · holds ${def.crateCapacity(1)} fish`;
+    if (def.crateCapacity) return `${size} · +${def.crateCapacity(1)} fish storage`;
     if (def.cansPerWorker) return `${jobText} · ${def.cansPerWorker(1)} cans/min each`;
     if (def.shipCansPerWorker) return `${jobText} · ships take ${def.shipCansPerWorker(1)} cans each`;
     if (def.speciesIncomePerWorker) return `${jobText} · $${fmtRate(def.speciesIncomePerWorker(1))}/min per species`;
@@ -1645,7 +1619,7 @@ export class TownScene extends Phaser.Scene {
       (isDecor ? 70 : 0) +
       (upgradable ? 70 : 0) +
       sells.length * 66 +
-      (def.id === 'baitShop' || def.id === 'boatyard' || def.id === 'aquarium' || def.id === 'icehouse' ? 66 : 0) +
+      (def.id === 'baitShop' || def.id === 'boatyard' || def.id === 'aquarium' || def.id === 'icehouse' || def.dockPricePerWorker ? 66 : 0) +
       (def.festivals ? 132 : 0) +
       (upgradeNeed(b) ? 22 : 0) +
       130;
@@ -1847,10 +1821,15 @@ export class TownScene extends Phaser.Scene {
       y += 66;
     }
 
-    if (def.id === 'icehouse') {
-      m.text(40, y - 12, `On ice ${cratesUsed()}/${crateCapacity()}`, 18, 0);
-      m.text(40, y + 14, 'For orders and upgrades', 14, 0).setAlpha(0.75);
-      m.add(makeButton(this, right, y, 110, 46, 'Look ›', () => this.openIcehouse(b), COLORS.primary, 18));
+    if (def.id === 'icehouse' || def.dockPricePerWorker) {
+      m.text(40, y - 12, `Barrels ${cratesUsed()}/${crateCapacity()}`, 18, 0);
+      m.text(40, y + 14, `Worth $${formatCoins(stockValue())} today`, 14, 0).setAlpha(0.75);
+      m.add(
+        makeButton(this, right, y, 110, 46, 'Sell >', () => {
+          this.closeModal();
+          openMarket(this, (mm) => (this.modal = mm), 0, () => this.openBuildingPanel(b));
+        }, COLORS.primary, 18),
+      );
       y += 66;
     }
 
@@ -1902,7 +1881,7 @@ export class TownScene extends Phaser.Scene {
       const owned = state.bait[bait.id] ?? 0;
       m.add(this.add.circle(48, y, 13, bait.color).setStrokeStyle(2, 0x000000, 0.3).setAlpha(unlocked ? 1 : 0.35));
       m.text(74, y - 24, `${bait.name} ×${bait.packSize}`, 18, 0);
-      m.text(74, y, `+${Math.round(bait.sellBonus * 100)}% sale · ${bait.lures}`, 13, 0).setColor(COLORS.gold);
+      m.text(74, y, bait.lures, 13, 0).setColor(COLORS.gold);
       m.text(74, y + 20, unlocked ? `Owned ${owned}` : `Unlocks at house level ${bait.unlockLevel}`, 12, 0).setColor(
         unlocked ? '#ffffff' : '#ffb4a2',
       ).setAlpha(unlocked ? 0.65 : 1);

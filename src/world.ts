@@ -8,7 +8,7 @@ import { ownsArea } from './town';
 export type Weather = 'clear' | 'cloudy' | 'rain' | 'storm';
 
 /** Small, stable hash → 0..1, so the same time slot always gets the same weather. */
-function hash01(n: number): number {
+export function hash01(n: number): number {
   let x = (n ^ 0x9e3779b9) >>> 0;
   x = Math.imul(x ^ (x >>> 16), 0x85ebca6b) >>> 0;
   x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35) >>> 0;
@@ -65,7 +65,7 @@ export function dayKey(now = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-const dayNumber = (key = dayKey()) => key.split('-').reduce((n, part) => n * 100 + Number(part), 0);
+export const dayNumber = (key = dayKey()): number => key.split('-').reduce((n, part) => n * 100 + Number(part), 0);
 
 /** One regular fish from an area you can reach sells for extra all day. */
 export function fishOfTheDay(): FishType {

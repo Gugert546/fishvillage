@@ -30,14 +30,22 @@ Deeper zones (Shallows → Open Water → The Deep → Abyss) hold rarer, faster
 
 ### Bait
 
-Bought in packs of 5 at the Bait Shop (needs a shopkeeper); one is used per cast. Pick it with the bait button on the dock. Bait raises sale price and lures better fish (more fish overall, and some species much more often).
+Bought in packs of 5 at the Bait Shop (needs a shopkeeper); one is used per cast. Pick it with the bait button on the dock. Bait only lures fish (more fish overall, and some species much more often); it no longer changes sale prices.
 
-| Bait | Town Lv | Price | Sale bonus | Lures |
-|---|---|---|---|---|
-| Worms | 2 | $20 | +10% | more fish |
-| Shrimp | 3 | $75 | +15% | Cod & Salmon ×2 |
-| Squid | 4 | $250 | +20% | Tuna ×2.5 |
-| Glow Bait | 5 | $800 | +25% | Anglerfish ×4 |
+| Bait | Town Lv | Price | Lures |
+|---|---|---|---|
+| Worms | 2 | $20 | 30% more bites |
+| Shrimp | 3 | $75 | Cod & Salmon ×3 (and their cousins in other areas) |
+| Squid | 4 | $250 | Tuna ×4 |
+| Glow Bait | 5 | $800 | Anglerfish ×6 |
+
+### Barrels & selling
+
+- Every catch goes into **barrels on the dock** (50 fish from the start; the Icehouse adds +100 / +250 / +500; Cold Storage perk +25% per rank). Pricier fish get the space first; whatever doesn't fit is sold on the spot at **50%**.
+- **Daily prices**: each species has its own price for the day, 60–160% of normal (the fish of the day gets +50% on top). Shown with `^` / `v` on the catch screen and in the market.
+- **Selling**: the catch screen has *Sell* (this catch) or *Keep*. The **Barrels** button on the dock (and the Icehouse / Fish Market panels in town) opens the market: sell one species or everything.
+- Price bonuses apply **when you sell**: house level, Fish Market, perks & Fisher Statue, storm, festival & Fish Auction, logbook page. A Market Voucher adds +50% to one whole sale. So it pays to wait for a good day, a storm or a festival.
+- Orders, upgrades and the Cannery all take fish from the same barrels (the Cannery leaves legendaries and fish promised to orders alone).
 
 ## Town
 
@@ -136,9 +144,9 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 - **Trophies**: catching a legendary unlocks its Trophy decor (2×2, $1k, +12 mood within 4 tiles, one each).
 - **Aquarium** (Lv 3, 4×2, 2–4 jobs): $0.5/min per worker for every species in the logbook (+25% per level).
 
-## Fish crates, orders & fish for upgrades
+## Icehouse, orders & fish for upgrades
 
-- **Icehouse** (Lv 3, 2×2, no workers): holds 40 / 90 / 160 fish. On the catch screen each fish has a **Sell / On ice** toggle; fish that open orders (or the next house level) still need start out on ice. The Icehouse panel lists what's on ice and can sell it all at plain value.
+- **Icehouse** (Lv 3, 2×2, no workers): more barrel space (+100 / +250 / +500 fish). See *Barrels & selling*.
 - **Orders** (Lv 3, on the Quests board's Orders tab): every 5 min a staffed earning workplace may ask for fish ("Fish Stand wants 8 Cod"), up to 3 at once. Delivering pays 1.5× the fish's value **and** gives that building **+5% income for good** (up to +50%). Orders can be dropped.
 - **Fish for upgrades**: upgrading any building to Lv 3 also takes fish from the Icehouse (8 of Cod / Salmon / Tuna / Anglerfish, rarer for later buildings), and house levels 4 / 5 / 6 need 10 Salmon / 8 Tuna / 5 Anglerfish.
 
@@ -162,7 +170,7 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 
 - **Wages** (mild): each worker costs 15% of what a typical worker at that building's tier earns (services pay 60% of that), +15% per building level. The top bar shows income after wages (red if negative); coins never drop below $0. Building panels list the wage per worker.
 - **Town Square** (Lv 2, 4×4, +8 mood within 4 tiles): host a **festival** for ~10 minutes of town income (min $150). It lasts 30/40/50 min (Square Lv 1/2/3): +25% income, +15 happiness, fish +15%, move-ins ×2, bunting, stalls, confetti and bouncier music.
-- **Traveling merchant** (Lv 3): calls every 90 min and stays 30 (a purple boat at the pier; tap it). Three goods per visit, one of each: Golden Lure (next cast's legendary is waiting), Market Voucher (double prices for 5 casts), Golden Net (+3 hook for 10 casts), Ancient Chart (+1 perk point; $250k, $500k, $750k; max 3), and merchant-only decor (Exotic Palm, Golden Anchor, Koi Pond). Prices grow with town level.
+- **Traveling merchant** (Lv 3): calls every 90 min and stays 30 (a purple boat at the pier; tap it). Three goods per visit, one of each: Golden Lure (next cast's legendary is waiting), Market Voucher (+50% on your next fish sale), Golden Net (+3 hook for 10 casts), Ancient Chart (+1 perk point; $250k, $500k, $750k; max 3), and merchant-only decor (Exotic Palm, Golden Anchor, Koi Pond). Prices grow with town level.
 - **Town projects** (Town Square → Board, paid in 10 parts): Weather Station (Lv 4, $50k, rain 60% more fish), Breakwater (Lv 5, $200k, boats sail in storms), Railway Station (Lv 6, $500k, +4h offline, move-ins +25%), Fish Auction (Lv 7, $1M, fish +10%), Trade Office (Lv 8, $2.5M, orders & ships +20%).
 - Cosmetics wait for the real art style. Storm damage was considered and dropped (feels unfair).
 

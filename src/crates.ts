@@ -5,6 +5,7 @@ import {
   BUILDING_BY_ID,
   FISH,
   ORDERS,
+  STORAGE,
   TOWN_LEVELS,
   UPGRADE_FISH,
   upgradeFishAmount,
@@ -24,11 +25,11 @@ export const fishName = (id: string): string => fishById(id).name;
 
 // ------------------------------------------------------------------ Crates
 
-/** How many fish the Icehouse holds (0 without one). */
+/** How many fish you can keep: the dock barrels plus the Icehouse. */
 export function crateCapacity(): number {
   const house = state.buildings.find((b) => b.type === 'icehouse');
-  const base = house ? (BUILDING_BY_ID.icehouse.crateCapacity?.(house.level) ?? 0) : 0;
-  return Math.floor(base * (1 + perkBonus('coldStorage')));
+  const ice = house ? (BUILDING_BY_ID.icehouse.crateCapacity?.(house.level) ?? 0) : 0;
+  return Math.floor((STORAGE.barrels + ice) * (1 + perkBonus('coldStorage')));
 }
 
 export function cratesUsed(): number {
@@ -59,16 +60,6 @@ function useFish(need: FishNeed): boolean {
   if (!hasFish(need)) return false;
   unstoreFish(need.fish, need.amount);
   return true;
-}
-
-/** Sells everything on ice at plain value; returns the coins. */
-export function sellCrates(): number {
-  let coins = 0;
-  for (const [id, n] of Object.entries(state.crates)) coins += fishById(id).value * n;
-  state.crates = {};
-  state.coins += coins;
-  save();
-  return coins;
 }
 
 // ---------------------------------------------------------------- Upgrades
@@ -106,10 +97,6 @@ export function reservedFish(fish: string): number {
   return want;
 }
 
-/** How many of a fish are still needed beyond what's on ice. */
-export function wantedFish(fish: string): number {
-  return Math.max(0, reservedFish(fish) - onIce(fish));
-}
 
 /** Big asks for cheap fish, small ones for pricey fish. */
 const orderAmount = (f: FishType) => (f.value <= 6 ? 12 : f.value <= 15 ? 8 : f.value <= 40 ? 6 : f.value <= 150 ? 4 : 3);

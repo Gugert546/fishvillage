@@ -192,7 +192,8 @@ export function checkQuests(): void {
 }
 
 export type QuestEvent =
-  | { type: 'cast'; fish: string[]; coins: number }
+  | { type: 'cast'; fish: string[] }
+  | { type: 'sold'; coins: number }
   | { type: 'placed'; building: BuildingId };
 
 export function questEvent(e: QuestEvent): void {
@@ -201,6 +202,7 @@ export function questEvent(e: QuestEvent): void {
     if (e.type === 'cast') {
       if (q.kind === 'catchFish') q.progress += e.fish.filter((id) => id === q.target).length;
       if (q.kind === 'fillHook') q.progress = Math.max(q.progress, e.fish.length);
+    } else if (e.type === 'sold') {
       if (q.kind === 'earnFishing') q.progress += e.coins;
     } else {
       if (q.kind === 'placeDecor' && e.building === q.target) q.progress++;
@@ -245,7 +247,7 @@ export function describeQuest(q: Quest): string {
     case 'fillHook':
       return `Catch ${q.amount} fish in one cast`;
     case 'earnFishing':
-      return `Earn $${q.amount} from fishing`;
+      return `Earn $${q.amount} selling fish`;
     case 'placeDecor':
       return `Place ${plural(q.amount, building ?? 'decoration')}`;
     case 'buildRoads':
