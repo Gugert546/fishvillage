@@ -88,16 +88,6 @@ export function deliveryBoost(b: PlacedBuilding): number {
   return Math.min(ORDERS.maxBoost, (b.deliveries ?? 0) * ORDERS.boostPerDelivery);
 }
 
-/** How many of a fish open orders and the next house level ask for (kept back from the Cannery). */
-export function reservedFish(fish: string): number {
-  let want = state.orders.filter((o) => o.fish === fish).reduce((sum, o) => sum + o.amount, 0);
-  const house = state.buildings.find((b) => b.type === 'playerHouse');
-  const houseNeed = house && upgradeNeed(house);
-  if (houseNeed?.fish === fish) want += houseNeed.amount;
-  return want;
-}
-
-
 /** Big asks for cheap fish, small ones for pricey fish. */
 const orderAmount = (f: FishType) => (f.value <= 6 ? 12 : f.value <= 15 ? 8 : f.value <= 40 ? 6 : f.value <= 150 ? 4 : 3);
 

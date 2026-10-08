@@ -198,6 +198,18 @@ export function rowboatTexture(scene: Phaser.Scene): string {
   }).key;
 }
 
+/** A little fishing boat seen from above, bow to the right, centred on (0, 0). */
+export function fleetBoatTexture(scene: Phaser.Scene): string {
+  return pixTexture(scene, 'fleet-boat', -14, -8, 28, 16, (p) => {
+    p.fillStyle(PAL.red).fillEllipse(0, 0, 26, 12);
+    p.fillStyle(PAL.sand).fillEllipse(-1, 0, 18, 7);
+    p.fillStyle(PAL.white).fillRect(-7, -3, 8, 6);
+    p.fillStyle(PAL.navy).fillRect(-6, -2, 2, 4);
+    p.fillStyle(PAL.bark).fillRect(5, -1, 2, 2);
+    p.outline();
+  }).key;
+}
+
 /** Build-menu icon for painted tiles. */
 export function tileIconTexture(scene: Phaser.Scene, id: BuildingId): { key: string; x: number; y: number } {
   return pixTexture(scene, `tile-icon-${id}`, 0, 0, TILE, TILE, (p) => {

@@ -8,6 +8,7 @@ import {
   PERK_TIER_POINTS,
   PROJECTS,
   PROJECT_CHUNKS,
+  FLEET,
   TRADE,
   type PerkBranch,
   BAIT_BY_ID,
@@ -59,7 +60,7 @@ import { state, type PlacedBuilding, type Resident } from '../state';
 import { makeTextures } from '../textures';
 import { addSprite, hasSprite, preloadSprites } from '../sprites';
 import { CHIMNEYS, LIGHTHOUSE_LAMP, buildingTexture, festivalTexture, millWheelTexture, squareTexture } from '../art/buildings';
-import { FOUNTAIN, LAMP_GLOW, decorTexture, jettyTexture, plinthTexture, rowboatTexture, tileIconTexture } from '../art/decor';
+import { FOUNTAIN, LAMP_GLOW, decorTexture, fleetBoatTexture, jettyTexture, plinthTexture, rowboatTexture, tileIconTexture } from '../art/decor';
 import { canalMouthTexture, groundImage, shoreImage, tileTexture } from '../art/ground';
 import { badgeTexture, pipTexture } from '../art/icons';
 import { PAL, pixImage } from '../pixel';
@@ -67,7 +68,7 @@ import { Villagers, makePerson, makePlayer } from './Villagers';
 import { isWorking, touchesWater, wateredTiles } from '../water';
 import { speciesCount } from '../logbook';
 import { branchSpent, buyPerk, canBuyPerk, perkOpen, perkRank, pointSources, pointsEarned, pointsFree, resetPerks } from '../perks';
-import { canningRate, secondsToShip, shipCapacity, takeShipVisits } from '../trade';
+import { boatTime, canningRate, fleet, holdCapacity, holdCount, secondsToShip, shipCapacity, takeBoatReturns, takeShipVisits, tripSeconds } from '../trade';
 import { ATMOSPHERE_DEPTH, Atmosphere } from '../atmosphere';
 import { festivalActive, festivalCost, festivalMinutesLeft, hostFestival } from '../festival';
 import { boughtThisVisit, buyItem, itemPrice, merchantHere, merchantMinutes, merchantStock } from '../merchant';
@@ -269,6 +270,9 @@ export class TownScene extends Phaser.Scene {
   private questBadge!: Phaser.GameObjects.Container;
   private atmosphere!: Atmosphere;
   private merchantBoat?: Phaser.GameObjects.Container;
+  /** The Fishing Wharf's boats, and their route along the canals out to sea. */
+  private fleetBoats: Phaser.GameObjects.Image[] = [];
+  private fleetRoute: { x: number; y: number }[] = [];
   private nightLights?: Phaser.GameObjects.Graphics;
   private questBadgeText!: Phaser.GameObjects.Text;
 
@@ -354,6 +358,7 @@ export class TownScene extends Phaser.Scene {
     this.showArrivals();
     for (const t of takeQuestToasts()) showToast(this, t);
     for (const v of takeShipVisits()) this.sailShip(v.coins);
+    this.updateFleet();
     this.refreshQuestButton();
     if (!this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined));
 
@@ -367,6 +372,102 @@ export class TownScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------- World
+
+  /**
+   * The boats' way out: from the canal beside the Fishing Wharf, along filled canals to the
+   * mouth in the bottom row, under the boardwalk and off to sea. Empty if there's no wharf.
+   */
+  private findFleetRoute(): { x: number; y: number }[] {
+    const wharf = state.buildings.find((b) => b.type === 'fishingWharf');
+    if (!wharf) return [];
+    const def = defOf(wharf);
+    const wet = wateredTiles();
+    const key = (c: number, r: number) => `${c},${r}`;
+    // Breadth-first from every wet tile touching the wharf to the nearest canal mouth (row 0).
+    const prev = new Map<string, string | null>();
+    const queue: [number, number][] = [];
+    for (let c = wharf.col - 1; c <= wharf.col + def.w; c++) {
+      for (let r = wharf.row - 1; r <= wharf.row + def.h; r++) {
+        const inside = c >= wharf.col && c < wharf.col + def.w && r >= wharf.row && r < wharf.row + def.h;
+        const corner = (c < wharf.col || c >= wharf.col + def.w) && (r < wharf.row || r >= wharf.row + def.h);
+        if (inside || corner || !wet.has(key(c, r))) continue;
+        prev.set(key(c, r), null);
+        queue.push([c, r]);
+      }
+    }
+    let end: string | undefined;
+    while (queue.length > 0 && !end) {
+      const [c, r] = queue.shift()!;
+      if (r === 0) {
+        end = key(c, r);
+        break;
+      }
+      for (const [dc, dr] of [[0, -1], [1, 0], [-1, 0], [0, 1]]) {
+        const k = key(c + dc, r + dr);
+        if (wet.has(k) && !prev.has(k)) {
+          prev.set(k, key(c, r));
+          queue.push([c + dc, r + dr]);
+        }
+      }
+    }
+    if (!end) return [];
+    const tiles: string[] = [];
+    for (let k: string | null | undefined = end; k; k = prev.get(k)) tiles.unshift(k);
+    const points = tiles.map((k) => {
+      const [c, r] = k.split(',').map(Number);
+      const p = tileToWorld(c, r, 1);
+      return { x: p.x + TILE / 2, y: p.y + TILE / 2 };
+    });
+    const mouth = points[points.length - 1];
+    const seaSide = mouth.x < GAME_WIDTH / 2 ? -40 : GAME_WIDTH + 40;
+    points.push({ x: mouth.x, y: SHORE_H + 60 }, { x: (mouth.x + seaSide) / 2, y: SHORE_H + 110 }, { x: seaSide, y: SHORE_H + 130 });
+    return points;
+  }
+
+  /** A point a fraction 0..1 of the way along the route, and which way the boat faces there. */
+  private alongRoute(frac: number): { x: number; y: number; angle: number } {
+    const pts = this.fleetRoute;
+    const lengths = pts.slice(1).map((p, i) => Math.hypot(p.x - pts[i].x, p.y - pts[i].y));
+    let left = Phaser.Math.Clamp(frac, 0, 1) * lengths.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < lengths.length; i++) {
+      if (left <= lengths[i] || i === lengths.length - 1) {
+        const t = lengths[i] > 0 ? Math.min(1, left / lengths[i]) : 0;
+        const a = pts[i];
+        const b = pts[i + 1];
+        return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, angle: Math.atan2(b.y - a.y, b.x - a.x) };
+      }
+      left -= lengths[i];
+    }
+    return { x: pts[0].x, y: pts[0].y, angle: 0 };
+  }
+
+  /**
+   * Each boat waits by the wharf, sails out along the canals, is away fishing for a while, then
+   * sails home the same way and unloads (one after another, so the canals stay lively).
+   */
+  private updateFleet(): void {
+    const f = fleet();
+    const boats = f && this.fleetRoute.length > 1 ? f.boats : 0;
+    while (this.fleetBoats.length < boats) this.fleetBoats.push(this.add.image(0, 0, fleetBoatTexture(this)).setDepth(3));
+    while (this.fleetBoats.length > boats) this.fleetBoats.pop()!.destroy();
+    const T = tripSeconds();
+    const S = FLEET.sailSeconds;
+    const wait = 6;
+    this.fleetBoats.forEach((boat, i) => {
+      const t = boatTime(i, boats);
+      let pos: { x: number; y: number; angle: number } | undefined;
+      if (t < wait) pos = this.alongRoute(0);
+      else if (t < wait + S) pos = this.alongRoute((t - wait) / S);
+      else if (t > T - S) {
+        pos = this.alongRoute((T - t) / S);
+        pos.angle += Math.PI; // heading home
+      }
+      boat.setVisible(!!pos);
+      if (pos) boat.setPosition(pos.x, pos.y + Math.sin(this.time.now / 400 + i) * 1.5).setRotation(pos.angle);
+    });
+    const wharf = f?.b;
+    for (const r of takeBoatReturns()) if (wharf) this.floatText(wharf, `+${r.fish} fish`, 16, '#8ecae6');
+  }
 
   /** A trade ship sails in past the pier, unloads its coins, and heads back out to sea. */
   private sailShip(coins: number): void {
@@ -611,6 +712,7 @@ export class TownScene extends Phaser.Scene {
   private refreshBuildingViews(): void {
     if (this.nightLights) this.drawNightLights();
     this.refreshMerchantBoat();
+    this.fleetRoute = this.findFleetRoute();
     const counts = workerCounts();
     const wet = wateredTiles();
     const alive = new Set<number>();
@@ -1594,6 +1696,7 @@ export class TownScene extends Phaser.Scene {
     if (def.id === 'boatyard') return `${jobText} · builds boats`;
     if (def.crateCapacity) return `${size} · +${def.crateCapacity(1)} fish storage`;
     if (def.cansPerWorker) return `${jobText} · ${def.cansPerWorker(1)} cans/min each`;
+    if (def.fleet) return `${jobText} · fishing boats`;
     if (def.shipCansPerWorker) return `${jobText} · ships take ${def.shipCansPerWorker(1)} cans each`;
     if (def.speciesIncomePerWorker) return `${jobText} · $${fmtRate(def.speciesIncomePerWorker(1))}/min per species`;
     return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/min each` : `${size} · ${jobText}`;
@@ -2073,8 +2176,14 @@ export class TownScene extends Phaser.Scene {
       return `+${Math.round(def.millPerWorker.amount * workers * 100)}% for ${nearby} workplace${nearby === 1 ? '' : 's'} within ${def.millPerWorker.radius} tiles`;
     }
     if (def.cansPerWorker) {
-      const rate = canningRate();
-      return `${state.cans}/${TRADE.maxCans} cans ($${formatCoins(state.cansValue)}) · ${fmtRate(rate)}/min from spare fish on ice`;
+      if (holdCapacity() === 0) return `${state.cans} cans · needs a Fishing Wharf to bring in fish`;
+      return `${state.cans}/${TRADE.maxCans} cans ($${formatCoins(state.cansValue)}) · ${fmtRate(canningRate())}/min · ${holdCount()} fish waiting at the wharf`;
+    }
+    if (def.fleet) {
+      const f = fleet();
+      const hold = `hold ${holdCount()}/${holdCapacity()}`;
+      if (!f) return `Needs ${FLEET.crewPerBoat} fishermen per boat · ${hold}`;
+      return `${f.boats} boat${f.boats === 1 ? '' : 's'} fishing · ${def.fleet.haul(b.level)} fish a trip · ${hold}`;
     }
     if (def.shipCansPerWorker) {
       const t = Math.ceil(secondsToShip());

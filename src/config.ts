@@ -415,6 +415,7 @@ export type BuildingId =
   | 'goldenAnchor'
   | 'koiPond'
   | 'cannery'
+  | 'fishingWharf'
   | 'exportDocks'
   | 'statue'
   | 'clockTower'
@@ -484,7 +485,9 @@ export interface BuildingDef {
   trophy?: string;
   /** Icehouse: extra fish storage at a given level. */
   crateCapacity?: (level: number) => number;
-  /** Cannery: spare fish each worker cans per minute. */
+  /** Fishing Wharf: fish one boat brings back per trip, and how many fish the hold keeps. */
+  fleet?: { haul: (level: number) => number; hold: (level: number) => number };
+  /** Cannery: fish (from wharf holds) each worker cans per minute. */
   cansPerWorker?: (level: number) => number;
   /** Export Docks: cans each worker loads onto a trade ship. */
   shipCansPerWorker?: (level: number) => number;
@@ -949,9 +952,30 @@ BUILDINGS.push(
 );
 
 BUILDINGS.push({
+  id: 'fishingWharf',
+  name: 'Fishing Wharf',
+  description: 'Fishermen sail little boats out along the canals. Their catch feeds the Cannery.',
+  category: 'work',
+  menuTab: 'services',
+  w: 4,
+  h: 2,
+  wall: 0x8d6e63,
+  roof: 0x3a4466,
+  baseCost: 40_000,
+  costGrowth: 1,
+  maxCount: 1,
+  maxLevel: 3,
+  unlockLevel: 6,
+  needsWater: true,
+  upgradeCost: (l) => Math.round(50_000 * Math.pow(2, l - 1)),
+  jobs: (l) => 2 * l,
+  fleet: { haul: (l) => 5 + 5 * l, hold: (l) => [0, 100, 200, 400][l] ?? 400 },
+});
+
+BUILDINGS.push({
   id: 'cannery',
   name: 'Cannery',
-  description: 'Cans spare fish from the Icehouse, at 3× value.',
+  description: 'Cans the Fishing Wharf\'s catch, at 3× value.',
   category: 'work',
   w: 4,
   h: 4,
@@ -1144,6 +1168,22 @@ export const PROJECTS: ProjectDef[] = [
 export const PROJECT_CHUNKS = 10;
 
 // --------------------------------------------------------------- Canning & trade
+
+export const FLEET = {
+  /** Fishermen per boat. */
+  crewPerBoat: 2,
+  /** Real minutes for one round trip (boats leave one after another). */
+  tripMinutes: 6,
+  /** Seconds a boat spends in town sailing out (and again sailing home). */
+  sailSeconds: 25,
+  /** What the boats catch, by wharf level: Harbor fish, better ones as the wharf grows. */
+  catch: [
+    {},
+    { sardine: 6, mackerel: 4, cod: 2 },
+    { sardine: 5, mackerel: 4, cod: 3, salmon: 2 },
+    { sardine: 4, mackerel: 4, cod: 3, salmon: 3, tuna: 1.5 },
+  ] as Partial<Record<string, number>>[],
+};
 
 export const TRADE = {
   /** A can is worth this many times the fish it was made from. */

@@ -311,6 +311,26 @@ const ART: Partial<Record<BuildingId, (a: Art, W: number, H: number, v: number) 
     a.footing(11, 28, 20, 2);
   },
 
+  fishingWharf(a) {
+    a.shadow(2, 29, 60);
+    // Boathouse with a big water door
+    a.gable(1, 2, 34, 12, WALL.ocean, ROOF.slate, PAL.white);
+    a.wall(3, 14, 30, 14, WALL.ocean);
+    a.r(9, 17, 18, 11, PAL.navy);
+    a.hl(8, 16, 20, PAL.white).vl(8, 16, 12, PAL.white).vl(27, 16, 12, PAL.white);
+    a.r(10, 24, 16, 4, PAL.ocean);
+    a.hl(11, 25, 5, PAL.sky).hl(19, 26, 4, PAL.sky);
+    a.win(16, 6, 4, 4);
+    // Open deck with a net drying rack, a crate and a barrel
+    a.r(36, 20, 26, 8, PAL.tan);
+    for (let x = 38; x < 62; x += 4) a.vl(x, 20, 8, PAL.clay);
+    a.vl(40, 8, 12, PAL.bark).vl(58, 8, 12, PAL.bark).hl(40, 8, 19, PAL.bark);
+    for (let x = 41; x < 58; x += 2) for (let y = 9; y < 18; y += 2) a.d(x + ((y - 9) % 4 === 0 ? 0 : 1), y, PAL.mist);
+    a.crate(44, 22, 5);
+    a.barrel(54, 21);
+    a.footing(2, 28, 60, 2);
+  },
+
   boatyard(a) {
     a.shadow(3, 61, 60);
     a.roof(1, 2, 62, 14, ROOF.brown, 3);

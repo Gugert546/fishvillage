@@ -97,6 +97,10 @@ export interface GameState {
   nextOrderId: number;
   /** Seconds accumulated toward the next order. */
   orderTimer: number;
+  /** Fish the Fishing Wharf's boats brought in, waiting for the Cannery. */
+  wharfHold: Record<string, number>;
+  /** Seconds the fleet has been at sea (drives each boat's trips). */
+  fleetClock: number;
   /** Canned fish waiting for a trade ship, and what they're worth together. */
   cans: number;
   cansValue: number;
@@ -153,6 +157,8 @@ function freshState(): GameState {
     orders: [],
     nextOrderId: 1,
     orderTimer: 0,
+    wharfHold: {},
+    fleetClock: 0,
     cans: 0,
     cansValue: 0,
     canProgress: 0,

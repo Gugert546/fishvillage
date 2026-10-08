@@ -45,7 +45,7 @@ Bought in packs of 5 at the Bait Shop (needs a shopkeeper); one is used per cast
 - **Daily prices**: each species has its own price for the day, 60–160% of normal (the fish of the day gets +50% on top). Shown with `^` / `v` on the catch screen and in the market.
 - **Selling**: the catch screen has *Sell* (this catch) or *Keep*. The **Barrels** button on the dock (and the Icehouse / Fish Market panels in town) opens the market: sell one species or everything.
 - Price bonuses apply **when you sell**: house level, Fish Market, perks & Fisher Statue, storm, festival & Fish Auction, logbook page. A Market Voucher adds +50% to one whole sale. So it pays to wait for a good day, a storm or a festival.
-- Orders, upgrades and the Cannery all take fish from the same barrels (the Cannery leaves legendaries and fish promised to orders alone).
+- Orders and upgrades take fish from the same barrels. The Cannery never does: it's fed by the Fishing Wharf.
 
 ## Town
 
@@ -153,7 +153,8 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 ## Late game: town levels 7–10, canning & trade, landmarks, perks
 
 - **Town levels 7–10**: $150k / $400k / $1M / $2.5M, 50 / 60 / 70 / 80 residents, and fish from the boat areas: 8 Swordfish, 6 Grouper, 4 Giant Squid, 3 Wolffish.
-- **Cannery** (Lv 7, 4×4, 4–6 jobs): each worker cans 0.75–1.25 spare fish/min from the Icehouse (never fish promised to orders or the house). A can is worth 3× the fish; up to 300 cans wait for a ship.
+- **Fishing Wharf** (Lv 6, 4×2, waterside, 2/4/6 jobs): every 2 fishermen crew a little boat (1/2/3 boats). Boats wait by the wharf, sail along the filled canals to the sea, fish, and come home the same way every 6 min, one after another. Each trip brings 10/15/20 Harbor fish (sardines to tuna, better with wharf level) into the wharf's **hold** (100/200/400). When the hold is full the crew sells the extra at plain value.
+- **Cannery** (Lv 7, 4×4, 4–6 jobs): each worker cans 0.75–1.25 fish/min from the wharf's hold (never from your barrels). A can is worth 3× the fish; up to 300 cans wait for a ship.
 - **Export Docks** (Lv 8, waterside, 4 jobs): a trade ship calls every 10 min, takes 15–25 cans per worker and pays for them. The ship sails in past the pier.
 - **Landmarks** (Build → Special, one each, +15 mood within 6 tiles, +1 perk point): Fisher Statue (Lv 7, $100k, fish +10%), Clock Tower (Lv 8, $300k, income +10%), Grand Lighthouse (Lv 9, $800k, legendaries +10%), Harbor Gate (Lv 10, $2M, +8 happiness everywhere).
 - **Perk tree** (Perks button in your house): three branches — Fishing (Sharp Hooks, Quick Reel, Big Bucket, Steady Hands, Lucky Charm), Town (Shopkeeping, Welcoming, Cheerful, Long Nap, Prosperity), Trade (Cold Storage, Haggler, Busy Docks, Export Deals, Big Contracts). Tier 2 perks need 2 points in the branch, tier 3 need 4. Points (21 in all): logbook pages, legendaries, every 10 species, town levels 7+, landmarks. Reset is free.
