@@ -6,6 +6,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "dev-auto",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "npm run dev -- --port $PORT --strictPort"],
+      "port": 5174,
+      "autoPort": true
     }
   ]
 }

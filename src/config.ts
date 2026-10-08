@@ -332,9 +332,10 @@ export function upgradeCost(def: UpgradeDef, level: number): number {
 // --------------------------------------------------------------------- Town
 
 export const TOWN_COLS = 14;
-export const TILE = 30;
-/** Left edge of the grid in world px. */
-export const GRID_X = (GAME_WIDTH - TOWN_COLS * TILE) / 2;
+/** One grid tile in world px: 16px pixel art shown at 2x. */
+export const TILE = 32;
+/** Left edge of the grid in world px, kept on the 2 px pixel-art grid. */
+export const GRID_X = Math.floor((GAME_WIDTH - TOWN_COLS * TILE) / 4) * 2;
 export const START_ROWS = 14;
 export const ROWS_PER_EXPANSION = 4;
 export const MAX_ROWS = 80;
@@ -742,7 +743,7 @@ BUILDINGS.push(
   {
     id: 'seafoodRestaurant',
     name: 'Seafood Restaurant',
-    description: 'Waterfront dining. Earns well and cheers up homes nearby.',
+    description: 'Waterfront dining. Cheers up homes nearby.',
     category: 'work',
     w: 4,
     h: 2,
@@ -795,7 +796,7 @@ BUILDINGS.push(
   service({
     id: 'boatyard',
     name: 'Boatyard',
-    description: 'Builds boats that take you to new fishing spots. Needs a worker.',
+    description: 'Builds boats for new fishing spots.',
     w: 4,
     h: 4,
     wall: 0xb08968,
@@ -810,7 +811,7 @@ BUILDINGS.push(
   service({
     id: 'bathhouse',
     name: 'Bathhouse',
-    description: 'Steam, hot baths and a cold dip. Cheers up homes nearby.',
+    description: 'Hot baths and a cold dip. Cheers up homes.',
     w: 2,
     h: 4,
     wall: 0xccd5ae,
@@ -925,7 +926,7 @@ BUILDINGS.push(
 BUILDINGS.push({
   id: 'townSquare',
   name: 'Town Square',
-  description: 'The heart of town. Host festivals and fund town projects here.',
+  description: 'Host festivals and fund town projects.',
   category: 'work',
   menuTab: 'services',
   w: 4,
@@ -952,7 +953,7 @@ BUILDINGS.push(
 BUILDINGS.push({
   id: 'cannery',
   name: 'Cannery',
-  description: 'Cans spare fish from the Icehouse. Cans are worth 3× the fish.',
+  description: 'Cans spare fish from the Icehouse, at 3× value.',
   category: 'work',
   w: 4,
   h: 4,

@@ -57,6 +57,12 @@ import {
 } from '../population';
 import { state, type PlacedBuilding, type Resident } from '../state';
 import { makeTextures } from '../textures';
+import { addSprite, hasSprite, preloadSprites } from '../sprites';
+import { CHIMNEYS, LIGHTHOUSE_LAMP, buildingTexture, festivalTexture, millWheelTexture, squareTexture } from '../art/buildings';
+import { FOUNTAIN, LAMP_GLOW, decorTexture, jettyTexture, plinthTexture, rowboatTexture, tileIconTexture } from '../art/decor';
+import { canalMouthTexture, groundImage, shoreImage, tileTexture } from '../art/ground';
+import { badgeTexture, pipTexture } from '../art/icons';
+import { PAL, pixImage } from '../pixel';
 import { Villagers, makePerson, makePlayer } from './Villagers';
 import { isWorking, touchesWater, wateredTiles } from '../water';
 import { speciesCount } from '../logbook';
@@ -147,7 +153,7 @@ import {
 // World layout: grid rows grow upward from y = 0; the shore and dock sit below it.
 const SHORE_H = 40;
 const WORLD_BOTTOM = 360;
-const DOCK = { x: GRID_X + 6 * TILE + 5, y: SHORE_H - 10, w: 50, h: 230 };
+const DOCK = { x: GRID_X + 6 * TILE + 6, y: SHORE_H - 10, w: 50, h: 230 };
 /** Space above the last unlocked row for the expansion strip and some forest. */
 const TOP_MARGIN = ROWS_PER_EXPANSION * TILE + 160;
 const BOTTOM_BAR_H = 90;
@@ -228,7 +234,7 @@ function worldToTile(x: number, y: number): { col: number; row: number } {
 
 export class TownScene extends Phaser.Scene {
   private topBar!: TopBar;
-  private ground!: Phaser.GameObjects.Graphics;
+  private ground?: Phaser.GameObjects.Image;
   private gridLines!: Phaser.GameObjects.Graphics;
   private expandButton?: Button;
   private buildingViews = new Map<number, Phaser.GameObjects.Container>();
@@ -248,7 +254,8 @@ export class TownScene extends Phaser.Scene {
   private cancelButton!: Button;
   private hint!: Phaser.GameObjects.Text;
 
-  private tileGfx!: Phaser.GameObjects.Graphics;
+  /** Hand-drawn tile sprites, on the same depth as tileGfx. */
+  private tileImages!: Phaser.GameObjects.Container;
   private tileKey = '';
   /** The tile type (road or canal) being painted, while the paint tool is open. */
   private paintDef?: BuildingDef;
@@ -268,6 +275,10 @@ export class TownScene extends Phaser.Scene {
     super('Town');
   }
 
+  preload(): void {
+    preloadSprites(this);
+  }
+
   create(): void {
     this.buildingViews = new Map();
     this.viewStatus = new Map();
@@ -283,9 +294,9 @@ export class TownScene extends Phaser.Scene {
 
     makeTextures(this);
     this.cameras.main.setBackgroundColor('#1b4332');
-    this.ground = this.add.graphics().setDepth(0);
+    this.ground = undefined;
     this.gridLines = this.add.graphics().setDepth(1);
-    this.tileGfx = this.add.graphics().setDepth(2);
+    this.tileImages = this.add.container(0, 0).setDepth(2);
     this.rangeGfx = this.add.graphics().setDepth(35);
     this.drawShoreAndDock();
     this.rebuildGround();
@@ -360,17 +371,16 @@ export class TownScene extends Phaser.Scene {
   private sailShip(coins: number): void {
     sfx.horn();
     const y = SHORE_H + 175;
-    const g = this.add.graphics();
-    g.fillStyle(0x264653).fillPoints(
-      [new Phaser.Math.Vector2(-60, -6), new Phaser.Math.Vector2(60, -6), new Phaser.Math.Vector2(48, 14), new Phaser.Math.Vector2(-52, 14)],
-      true,
-    );
-    g.fillStyle(0xe76f51).fillRect(-60, -6, 120, 4);
-    const boxes = [0xe63946, 0xf4a261, 0x2a9d8f, 0xe9c46a, 0x457b9d];
-    boxes.forEach((c, i) => g.fillStyle(c).fillRect(-46 + i * 16, -20, 14, 14));
-    g.fillStyle(0xf1faee).fillRect(30, -34, 22, 28);
-    g.fillStyle(0x1d3557).fillRect(33, -30, 16, 6);
-    g.fillStyle(0x333333).fillRect(38, -44, 6, 10);
+    const g = pixImage(this, 'trade-ship', -62, -46, 124, 62, (p) => {
+      p.fillStyle(PAL.slate).fillPoints([{ x: -60, y: -6 }, { x: 60, y: -6 }, { x: 48, y: 14 }, { x: -52, y: 14 }]);
+      p.fillStyle(PAL.navy).fillRect(-56, 6, 110, 4);
+      p.fillStyle(PAL.red).fillRect(-60, -6, 120, 4);
+      [PAL.red, PAL.orange, PAL.green, PAL.amber, PAL.ocean].forEach((c, i) => p.fillStyle(c).fillRect(-46 + i * 16, -20, 14, 14));
+      p.fillStyle(PAL.white).fillRect(30, -34, 22, 28);
+      p.fillStyle(PAL.navy).fillRect(34, -30, 14, 6);
+      p.fillStyle(PAL.slate).fillRect(38, -44, 6, 10);
+      p.outline();
+    });
     const ship = this.add.container(GAME_WIDTH + 80, y, [g]).setDepth(5);
     const stop = GAME_WIDTH * 0.72;
     this.tweens.add({
@@ -399,36 +409,8 @@ export class TownScene extends Phaser.Scene {
   private rebuildGround(): void {
     const rows = townRows();
     const top = this.topY();
-    const g = this.ground.clear();
-
-    // Forest beyond the town
-    g.fillStyle(0x2d6a4f);
-    g.fillRect(0, top, GAME_WIDTH, -top);
-    g.fillStyle(0x1b4332);
-    for (let y = top + 20; y < -rows * TILE; y += 46) {
-      for (let x = (y / 46) % 2 === 0 ? 10 : 33; x < GAME_WIDTH; x += 46) g.fillCircle(x, y, 18);
-    }
-
-    // Next expansion strip
-    if (canExpand()) {
-      const stripTop = -(rows + ROWS_PER_EXPANSION) * TILE;
-      g.fillStyle(0x52b788, 0.55);
-      g.fillRect(GRID_X, stripTop, TOWN_COLS * TILE, ROWS_PER_EXPANSION * TILE);
-    }
-
-    // Unlocked land, checkered in 2×2 blocks so the fine grid stays calm
-    g.fillStyle(0x74c69d);
-    g.fillRect(0, -rows * TILE, GAME_WIDTH, rows * TILE);
-    g.fillStyle(0x82cca5);
-    for (let r = 0; r < rows; r += 2) {
-      for (let c = 0; c < TOWN_COLS; c += 2) {
-        if ((r / 2 + c / 2) % 2 === 0) g.fillRect(GRID_X + c * TILE, -(r + 2) * TILE, TILE * 2, TILE * 2);
-      }
-    }
-    // Fence along the top edge
-    g.fillStyle(0x8b5a2b);
-    g.fillRect(GRID_X - 4, -rows * TILE - 4, TOWN_COLS * TILE + 8, 5);
-    for (let x = GRID_X - 4; x <= GRID_X + TOWN_COLS * TILE; x += 30) g.fillRect(x, -rows * TILE - 12, 5, 14);
+    this.ground?.destroy();
+    this.ground = groundImage(this, 'ground', top, rows, canExpand() ? ROWS_PER_EXPANSION : 0, GRID_X).setDepth(0);
 
     this.expandButton?.destroy();
     this.expandButton = undefined;
@@ -450,43 +432,13 @@ export class TownScene extends Phaser.Scene {
     const g = this.gridLines.clear();
     if (!this.ghost && !this.paintDef) return;
     const rows = townRows();
-    g.lineStyle(1, 0x000000, 0.14);
+    g.lineStyle(2, 0x000000, 0.14);
     for (let c = 0; c <= TOWN_COLS; c++) g.lineBetween(GRID_X + c * TILE, 0, GRID_X + c * TILE, -rows * TILE);
     for (let r = 0; r <= rows; r++) g.lineBetween(GRID_X, -r * TILE, GRID_X + TOWN_COLS * TILE, -r * TILE);
   }
 
   private drawShoreAndDock(): void {
-    const g = this.add.graphics().setDepth(0);
-    g.fillStyle(0x3fa7d6);
-    g.fillRect(0, SHORE_H, GAME_WIDTH, WORLD_BOTTOM - SHORE_H);
-
-    // Boardwalk along the waterfront: planks across, a heavy edge beam, posts in the water.
-    g.fillStyle(0x1f6f99, 0.45);
-    g.fillRect(0, SHORE_H, GAME_WIDTH, 10); // shadow on the water
-    g.fillStyle(0x5c3a1e);
-    for (let x = 12; x < GAME_WIDTH; x += 44) g.fillRect(x, SHORE_H - 2, 7, 16);
-    for (let x = 0, i = 0; x < GAME_WIDTH; x += 15, i++) {
-      g.fillStyle(i % 2 === 0 ? 0xa47148 : 0x9a6a42);
-      g.fillRect(x, 0, 15, SHORE_H - 5);
-      g.fillStyle(0x6b4423, 0.55);
-      g.fillRect(x, 0, 1, SHORE_H - 5);
-    }
-    g.fillStyle(0x6b4423);
-    g.fillRect(0, SHORE_H - 6, GAME_WIDTH, 6);
-    g.fillStyle(0x4a2f1a, 0.35);
-    g.fillRect(0, 0, GAME_WIDTH, 2); // where the grass meets the boards
-
-    // Fishing pier
-    g.fillStyle(0x5c3a1e);
-    for (let y = DOCK.y + 40; y < DOCK.y + DOCK.h; y += 60) {
-      g.fillRect(DOCK.x - 4, y, 8, 26);
-      g.fillRect(DOCK.x + DOCK.w - 4, y, 8, 26);
-    }
-    g.fillStyle(0x8b5a2b);
-    g.fillRect(DOCK.x, DOCK.y, DOCK.w, DOCK.h);
-    g.fillStyle(0x6e4522);
-    for (let y = DOCK.y; y < DOCK.y + DOCK.h; y += 18) g.fillRect(DOCK.x, y, DOCK.w, 2);
-
+    shoreImage(this, SHORE_H, WORLD_BOTTOM, DOCK).setDepth(0);
     const sign = makeText(this, DOCK.x + DOCK.w + 12, DOCK.y + 70, 'Go fishing ›', 18).setOrigin(0, 0.5);
     this.tweens.add({ targets: sign, x: sign.x + 6, duration: 600, yoyo: true, repeat: -1 });
   }
@@ -499,281 +451,62 @@ export class TownScene extends Phaser.Scene {
     if (def.festivals) return this.squareView(status);
     const pw = def.w * TILE;
     const ph = def.h * TILE;
-    const eave = ph * 0.42;
-    const g = this.add.graphics();
-    g.fillStyle(0x000000, 0.18);
-    g.fillRect(8, 10, pw - 10, ph - 12);
-
-    const chimney = this.chimneyOf(def);
-    if (chimney) {
-      g.fillStyle(0x6b4f3a);
-      g.fillRect(chimney.x - 3.5, chimney.y, 7, 16);
-    }
-    g.fillStyle(def.wall);
-    g.fillRect(6, eave - 4, pw - 12, ph - eave - 2);
-    g.fillStyle(def.roof);
-    g.fillTriangle(1, eave, pw / 2, 3, pw - 1, eave);
-
-    const doorH = Math.min(22, ph * 0.3);
-    if (def.id === 'apartment') {
-      // Rows of lit windows
-      g.fillStyle(0xffe8a3);
-      for (let wy = eave + 8; wy < ph - doorH - 12; wy += 22) {
-        for (let wx = 16; wx < pw - 24; wx += 24) g.fillRect(wx, wy, 14, 12);
-      }
-    } else if (def.id === 'playerHouse') {
-      // Lit windows with shutters, and a pennant on the roof.
-      for (const wx of [16, pw - 40]) {
-        g.fillStyle(0x2a6f97);
-        g.fillRect(wx - 4, eave + 12, 4, 22);
-        g.fillRect(wx + 24, eave + 12, 4, 22);
-        g.fillStyle(0xffe8a3);
-        g.fillRect(wx, eave + 12, 24, 22);
-        g.fillStyle(0xfaf3e0);
-        g.fillRect(wx + 11, eave + 12, 2, 22);
-      }
-      g.fillStyle(0x5c3a1e);
-      g.fillRect(pw / 2 - 1, -12, 2, 18);
-      g.fillStyle(0xffd166);
-      g.fillTriangle(pw / 2 + 1, -12, pw / 2 + 15, -7, pw / 2 + 1, -2);
-
-    } else if (def.id === 'cannery') {
-      // Factory: saw-tooth roofline, a tall chimney and a conveyor of cans.
-      g.fillStyle(0x495057);
-      g.fillRect(pw - 26, 0, 12, eave);
-      g.fillStyle(0xdee2e6);
-      for (let x = 16; x < pw - 36; x += 22) g.fillRect(x, eave + 10, 14, 12);
-      g.fillStyle(0x343a40);
-      g.fillRect(10, ph - 22, pw - 20, 5);
-      g.fillStyle(0xced4da);
-      for (let x = 14; x < pw - 14; x += 10) g.fillRect(x, ph - 30, 7, 8);
-    } else if (def.id === 'exportDocks') {
-      // Warehouse front with a crane and stacked shipping containers.
-      g.fillStyle(0x6b4f3a);
-      g.fillRect(14, ph - 34, 30, 28);
-      const boxes = [0xe63946, 0x2a9d8f, 0xe9c46a, 0x457b9d];
-      boxes.forEach((c, i) => {
-        g.fillStyle(c);
-        g.fillRect(52 + (i % 2) * 26, ph - 18 - Math.floor(i / 2) * 14, 24, 12);
-      });
-      g.lineStyle(3, 0xf4a261);
-      g.lineBetween(pw - 18, ph - 6, pw - 18, eave - 20);
-      g.lineBetween(pw - 18, eave - 20, pw - 60, eave - 20);
-      g.lineStyle(1, 0x222222);
-      g.lineBetween(pw - 56, eave - 20, pw - 56, eave + 10);
-    } else if (def.id === 'icehouse') {
-      // Thick insulated walls, a frosty door and ice blocks stacked outside.
-      g.fillStyle(0x9ecae1);
-      g.fillRect(pw / 2 - 8, ph - 24, 16, 18);
-      g.fillStyle(0xffffff, 0.8);
-      g.fillRect(pw / 2 - 6, ph - 22, 4, 6);
-      g.fillStyle(0xd6f1fb);
-      g.fillRect(6, ph - 14, 10, 8);
-      g.fillRect(pw - 16, ph - 14, 10, 8);
-      g.fillRect(pw - 14, ph - 21, 8, 7);
-      g.fillStyle(0xffffff);
-      g.fillRect(1, eave - 2, pw - 2, 3);
-    } else if (def.id === 'aquarium') {
-      // A big glass tank across the front, with a few fish inside.
-      g.fillStyle(0x48cae4);
-      g.fillRect(10, ph - 30, pw - 20, 22);
-      g.fillStyle(0xffffff, 0.35);
-      g.fillRect(12, ph - 28, pw - 24, 4);
-      for (const [fx, fy, c] of [[24, ph - 18, 0xff7f2a], [52, ph - 22, 0xffd166], [80, ph - 15, 0x2a6fdb], [100, ph - 21, 0xff5d8f]]) {
-        g.fillStyle(c);
-        g.fillEllipse(fx, fy, 9, 5);
-        g.fillTriangle(fx - 4, fy, fx - 8, fy - 3, fx - 8, fy + 3);
-      }
-      g.fillStyle(0x3d5a80);
-      g.fillRect(pw / 2 - 3, eave - 2, 6, ph - eave - 30);
-    } else if (def.id === 'warehouse') {
-      // Wide barn doors and a stack of crates.
-      g.fillStyle(0x6b4f3a);
-      g.fillRect(pw / 2 - 18, ph - 30, 36, 24);
-      g.lineStyle(2, 0x4a3420);
-      g.lineBetween(pw / 2, ph - 30, pw / 2, ph - 6);
-      g.lineBetween(pw / 2 - 18, ph - 30, pw / 2 + 18, ph - 6);
-      g.fillStyle(0xd4a373);
-      g.fillRect(10, ph - 20, 14, 14);
-      g.fillRect(26, ph - 20, 14, 14);
-      g.fillRect(18, ph - 33, 14, 13);
-    } else if (def.id === 'tavern') {
-      // Warm windows and a hanging mug sign.
-      g.fillStyle(0xffb703);
-      g.fillRect(12, ph - 26, 16, 14);
-      g.fillRect(pw - 28, ph - 26, 16, 14);
-      g.fillStyle(0x6b4f3a);
-      g.fillRect(pw / 2 + 12, eave + 2, 14, 12);
-      g.fillStyle(0xffd166);
-      g.fillRect(pw / 2 + 15, eave + 4, 7, 8);
-    } else if (def.id === 'netMaker') {
-      // A net hung out to dry on the wall.
-      g.lineStyle(1, 0x2b2d42, 0.8);
-      for (let x = 10; x <= 42; x += 6) g.lineBetween(x, ph - 30, x + 6, ph - 8);
-      for (let x = 16; x <= 48; x += 6) g.lineBetween(x, ph - 30, x - 6, ph - 8);
-      g.fillStyle(0xa8def0);
-      g.fillRect(pw - 36, ph - 28, 20, 14);
-    } else if (def.id === 'fishMarket' || def.id === 'seafoodRestaurant') {
-      // Striped awning over the front, crates of fish or warm windows beneath.
-      const awningY = def.id === 'fishMarket' ? ph - 46 : ph - 34;
-      const [a, b] = def.id === 'fishMarket' ? [0xc1121f, 0xfefae0] : [0x1d3557, 0xfefae0];
-      for (let x = 8, i = 0; x < pw - 8; x += 12, i++) {
-        g.fillStyle(i % 2 === 0 ? a : b);
-        g.fillRect(x, awningY, 12, 10);
-        g.fillTriangle(x, awningY + 10, x + 12, awningY + 10, x + 6, awningY + 15);
-      }
-      if (def.id === 'fishMarket') {
-        g.fillStyle(0xd4a373);
-        for (const x of [12, 34, pw - 58, pw - 36]) g.fillRect(x, ph - 22, 20, 14);
-        g.fillStyle(0x8ecae6);
-        for (const x of [16, 38, pw - 54, pw - 32]) g.fillEllipse(x + 6, ph - 18, 10, 5);
-      } else {
-        g.fillStyle(0xffd166);
-        g.fillRect(12, ph - 20, 18, 12);
-        g.fillRect(pw - 30, ph - 20, 18, 12);
-        g.fillStyle(0xffe066);
-        for (let x = 10; x < pw - 6; x += 9) g.fillCircle(x, awningY - 4 + Math.sin(x) * 1.5, 1.6);
-      }
-    } else if (def.id === 'boatyard') {
-      // A wide shed with a half-built hull on the slipway.
-      g.fillStyle(0x6b4f3a);
-      g.fillRect(pw / 2 - 30, eave + 8, 60, ph - eave - 14);
-      g.fillStyle(0x8d5524);
-      g.fillEllipse(pw / 2, ph - 12, 70, 16);
-      g.fillStyle(0xb08968);
-      g.fillRect(pw / 2 - 35, ph - 12, 70, 6);
-      g.lineStyle(2, 0x5c3a1e);
-      for (let x = pw / 2 - 28; x <= pw / 2 + 28; x += 14) g.lineBetween(x, ph - 20, x, ph - 30);
-    } else if (def.id === 'fishermansHut') {
-      // Barrel by the door and a rod leaning on the wall.
-      g.fillStyle(0x7f5539);
-      g.fillRoundedRect(6, ph - 18, 10, 12, 2);
-      g.lineStyle(2, 0x4a2f1a);
-      g.lineBetween(pw - 10, ph - 6, pw - 2, eave - 6);
-    } else if (def.id === 'bathhouse') {
-      g.fillStyle(0xa8def0);
-      g.fillRect(12, eave + 12, 14, 14);
-      g.fillRect(pw - 26, eave + 12, 14, 14);
-      g.fillRect(12, eave + 36, 14, 14);
-      g.fillRect(pw - 26, eave + 36, 14, 14);
-    } else if (def.w >= 4) {
-      g.fillStyle(0xa8def0);
-      g.fillRect(16, eave + 10, 22, 18);
-      g.fillRect(pw - 38, eave + 10, 22, 18);
-    } else if (def.id === 'cottage') {
-      g.fillStyle(0xffe8a3);
-      g.fillRect(12, ph - 26, 10, 10);
-    }
-    g.fillStyle(0x5c3a1e);
-    g.fillRect(pw / 2 - 7, ph - 6 - doorH, 14, doorH);
-
-    const parts: Phaser.GameObjects.GameObject[] = [g];
+    const parts: Phaser.GameObjects.GameObject[] = [this.artImage(def, placed?.id ?? 0)];
     if (def.id === 'playerHouse') parts.push(makePlayer(this).setPosition(pw / 2 + 18, ph - 4));
     if (def.id === 'waterMill') {
       // The wheel turns while millers are at work.
-      const wheel = this.add.graphics();
-      wheel.lineStyle(3, 0x5c3a1e).strokeCircle(0, 0, 13);
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2;
-        wheel.lineBetween(0, 0, Math.cos(a) * 13, Math.sin(a) * 13);
-        wheel.fillStyle(0x8b5a2b).fillRect(Math.cos(a) * 13 - 2, Math.sin(a) * 13 - 2, 4, 4);
-      }
-      wheel.setPosition(15, ph - 15); // inside the footprint, so it never overlaps a neighbour
+      const wheel = this.add.image(15, ph - 15, millWheelTexture(this));
       if (status?.keeper !== undefined && !status.dry) this.tweens.add({ targets: wheel, angle: 360, duration: 4000, repeat: -1 });
       parts.push(wheel);
     }
-    if (def.id === 'fishStand') parts.push(this.add.image(pw / 2, eave + 10, 'fish-mackerel').setScale(0.7));
-    if (def.id === 'filletHouse') {
-      // A salmon on the sign with a little knife beside it.
-      const knife = this.add.graphics();
-      knife.fillStyle(0xdee2e6);
-      knife.fillTriangle(pw / 2 + 20, eave - 2, pw / 2 + 34, eave - 6, pw / 2 + 34, eave + 1);
-      knife.fillStyle(0x5c3a1e);
-      knife.fillRect(pw / 2 + 34, eave - 6, 8, 5);
-      parts.push(this.add.image(pw / 2 - 6, eave - 4, 'fish-salmon').setScale(0.55), knife);
-    }
-    if (def.id === 'tackleShop') parts.push(this.add.image(pw / 2, eave + 12, 'hook').setScale(1.4));
-    if (def.id === 'baitShop') {
-      const worm = this.add.graphics();
-      worm.lineStyle(4, 0xe07a8f);
-      worm.beginPath();
-      worm.arc(pw / 2 - 4, eave + 10, 5, Math.PI, 0, false);
-      worm.arc(pw / 2 + 6, eave + 10, 5, Math.PI, 0, true);
-      worm.strokePath();
-      parts.push(worm);
-    }
-    if (status) {
-      if (def.maxLevel > 1) {
-        parts.push(this.add.circle(pw - 10, 10, 10, 0x1d3557).setStrokeStyle(2, 0xffffff));
-        parts.push(makeText(this, pw - 10, 10, `${status.level}`, 12).setOrigin(0.5));
-      }
-      if (status.keeper !== undefined) {
-        // Shopkeeper waiting in the doorway, shifting their weight now and then.
-        const keeper = makePerson(this, status.keeper).setPosition(pw / 2 + 13, ph - 5);
-        this.tweens.add({ targets: keeper, scaleY: 1.06, duration: 900 + Math.random() * 400, yoyo: true, repeat: -1 });
-        parts.push(keeper);
-      }
-      if (status.dry) {
-        // A waterside building cut off from the water.
-        const pip = this.add.circle(10, 10, 9, 0x1e90ff).setStrokeStyle(2, 0xffffff);
-        const mark = makeText(this, 10, 10, '!', 13).setOrigin(0.5);
-        this.tweens.add({ targets: [pip, mark], scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
-        parts.push(pip, mark);
-      } else if (status.unstaffed) {
-        // "Help wanted": a workplace with nobody working there
-        const pip = this.add.circle(10, 10, 9, 0xe63946).setStrokeStyle(2, 0xffffff);
-        const mark = makeText(this, 10, 10, '!', 13).setOrigin(0.5);
-        this.tweens.add({ targets: [pip, mark], scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
-        parts.push(pip, mark);
-      }
-    }
+    if (status) parts.push(...this.statusParts(def, status, { x: 10, y: 10, keeper: true }));
     return this.add.container(0, 0, parts);
+  }
+
+  /**
+   * A building's picture: your own sprite from assets/sprites/<id>.png when there is one
+   * (16 px per tile, bottom-left on the footprint), otherwise the built-in pixel art.
+   */
+  private artImage(def: BuildingDef, variant: number): Phaser.GameObjects.Image {
+    if (hasSprite(this, def.id)) return addSprite(this, def.id, 0, def.h * TILE).setOrigin(0, 1);
+    const t = buildingTexture(this, def, variant);
+    return this.add.image(t.x, t.y, t.key).setOrigin(0);
+  }
+
+  /** Level badge, shopkeeper in the doorway and the "!" marker, for a building's view. */
+  private statusParts(def: BuildingDef, status: ViewStatus, at: { x: number; y: number; keeper: boolean }): Phaser.GameObjects.GameObject[] {
+    const pw = def.w * TILE;
+    const ph = def.h * TILE;
+    const parts: Phaser.GameObjects.GameObject[] = [];
+    if (def.maxLevel > 1) {
+      parts.push(this.add.image(pw - at.x, at.y, badgeTexture(this)));
+      parts.push(makeText(this, pw - at.x, at.y, `${status.level}`, 12).setOrigin(0.5));
+    }
+    if (at.keeper && status.keeper !== undefined) {
+      // Shopkeeper waiting in the doorway, shifting their weight now and then.
+      const keeper = makePerson(this, status.keeper).setPosition(pw / 2 + 13, ph - 5);
+      this.tweens.add({ targets: keeper, scaleY: 1.06, duration: 900 + Math.random() * 400, yoyo: true, repeat: -1 });
+      parts.push(keeper);
+    }
+    // Blue: a waterside building cut off from the water. Red: "help wanted", nobody works here.
+    if (status.dry || status.unstaffed) {
+      const pip = this.add.image(at.x, at.y, pipTexture(this, status.dry ? 'blue' : 'red'));
+      const mark = makeText(this, at.x, at.y, '!', 13).setOrigin(0.5);
+      this.tweens.add({ targets: [pip, mark], scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
+      parts.push(pip, mark);
+    }
+    return parts;
   }
 
   /** A striped tower with a lamp room whose beam sweeps while keepers are on duty. */
   private lighthouseView(def: BuildingDef, status?: ViewStatus): Phaser.GameObjects.Container {
-    const pw = def.w * TILE;
-    const ph = def.h * TILE;
-    const g = this.add.graphics();
-    g.fillStyle(0x000000, 0.18);
-    g.fillEllipse(pw / 2 + 3, ph - 4, pw - 6, 12);
-    // Tapered tower in red and white bands
-    const top = 30;
-    const band = (ph - top) / 5;
-    for (let i = 0; i < 5; i++) {
-      const y0 = top + i * band;
-      const inset = 14 - (i * 6) / 5;
-      g.fillStyle(i % 2 === 0 ? def.roof : def.wall);
-      g.fillRect(inset, y0, pw - inset * 2, band + 1);
-    }
-    g.fillStyle(0x5c3a1e);
-    g.fillRect(pw / 2 - 5, ph - 18, 10, 14);
-    // Lamp room and cap
-    g.fillStyle(0x343a40);
-    g.fillRect(14, top - 4, pw - 28, 4);
-    g.fillStyle(0xffe066);
-    g.fillRect(18, top - 18, pw - 36, 14);
-    g.fillStyle(def.roof);
-    g.fillTriangle(14, top - 18, pw / 2, top - 32, pw - 14, top - 18);
-
-    const parts: Phaser.GameObjects.GameObject[] = [g];
+    const parts: Phaser.GameObjects.GameObject[] = [this.artImage(def, 0)];
     if (status?.keeper !== undefined) {
-      const beam = this.add.triangle(pw / 2, top - 11, 0, 0, 70, -10, 70, 10, 0xfff3b0, 0.35).setOrigin(0, 0.5);
+      const beam = this.add.triangle(LIGHTHOUSE_LAMP.x, LIGHTHOUSE_LAMP.y, 0, 0, 70, -10, 70, 10, 0xfee761, 0.35).setOrigin(0, 0.5);
       this.tweens.add({ targets: beam, scaleX: -1, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
       parts.push(beam);
     }
-    if (status) {
-      if (def.maxLevel > 1) {
-        parts.push(this.add.circle(pw - 6, top + 4, 10, 0x1d3557).setStrokeStyle(2, 0xffffff));
-        parts.push(makeText(this, pw - 6, top + 4, `${status.level}`, 12).setOrigin(0.5));
-      }
-      if (status.unstaffed) {
-        const pip = this.add.circle(6, top + 4, 9, 0xe63946).setStrokeStyle(2, 0xffffff);
-        const mark = makeText(this, 6, top + 4, '!', 13).setOrigin(0.5);
-        this.tweens.add({ targets: [pip, mark], scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
-        parts.push(pip, mark);
-      }
-    }
+    if (status) parts.push(...this.statusParts(def, status, { x: 6, y: 34, keeper: false }));
     return this.add.container(0, 0, parts);
   }
 
@@ -781,63 +514,44 @@ export class TownScene extends Phaser.Scene {
   private decorView(def: BuildingDef, placed?: PlacedBuilding): Phaser.GameObjects.Container {
     if (def.id === 'mooredBoats') return this.boatView(placed);
     if (def.trophy) return this.trophyView(def.trophy);
-    const view = this.add.container(0, 0, [this.drawDecor(def)]);
+    const view = this.add.container(0, 0, [this.decorImage(def)]);
     if (def.id === 'lampPost') {
-      const glow = this.add.circle(TILE / 2, 8, 13, 0xffe066, 0.18);
+      const glow = this.add.circle(LAMP_GLOW.x, LAMP_GLOW.y, 13, 0xfee761, 0.18);
       view.addAt(glow, 0);
       this.tweens.add({ targets: glow, alpha: 0.45, scale: 1.25, duration: 1400 + Math.random() * 600, yoyo: true, repeat: -1 });
     }
     if (def.id === 'fountain') {
-      const spout = this.add.circle(TILE, TILE - 3, 3, 0xffffff, 0.9);
-      const ripple = this.add.circle(TILE, TILE, 9).setStrokeStyle(2, 0xffffff, 0.6);
+      const spout = this.add.rectangle(FOUNTAIN.spoutX, FOUNTAIN.spoutY, 4, 4, 0xffffff);
+      const ripple = this.add.ellipse(FOUNTAIN.spoutX, FOUNTAIN.poolY, 18, 10).setStrokeStyle(2, 0xffffff, 0.6);
       view.add([ripple, spout]);
-      this.tweens.add({ targets: spout, y: TILE - 9, duration: 450, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+      this.tweens.add({ targets: spout, y: FOUNTAIN.spoutY - 6, duration: 450, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
       this.tweens.add({ targets: ripple, scale: 2.1, alpha: 0, duration: 1600, repeat: -1 });
     }
     return view;
   }
 
+  /** Decoration or tile icon: your own sprite when there is one, otherwise the pixel art. */
+  private decorImage(def: BuildingDef): Phaser.GameObjects.Image {
+    if (hasSprite(this, def.id)) {
+      const img = addSprite(this, def.id, 0, def.h * TILE).setOrigin(0, 1);
+      return def.category === 'tile' ? img.setOrigin(0).setPosition(0, 0).setDisplaySize(TILE, TILE) : img;
+    }
+    const t = def.category === 'tile' ? tileIconTexture(this, def.id) : decorTexture(this, def);
+    return this.add.image(t.x, t.y, t.key).setOrigin(0);
+  }
+
   /** Paved plaza with a bandstand; bunting, stalls and confetti while a festival is on. */
   private squareView(status?: ViewStatus): Phaser.GameObjects.Container {
     const s = TILE * 4;
-    const g = this.add.graphics();
-    g.fillStyle(0xd6ccc2).fillRect(2, 2, s - 4, s - 4);
-    g.lineStyle(1, 0xb5a99a, 0.8);
-    for (let i = 15; i < s; i += 15) {
-      g.lineBetween(2, i, s - 2, i);
-      g.lineBetween(i, 2, i, s - 2);
-    }
-    // Bandstand
-    g.fillStyle(0x000000, 0.18).fillCircle(s / 2 + 3, s / 2 + 4, 28);
-    g.fillStyle(0xfefae0).fillCircle(s / 2, s / 2, 26);
-    g.fillStyle(0xe76f51).fillTriangle(s / 2 - 30, s / 2 - 8, s / 2, s / 2 - 34, s / 2 + 30, s / 2 - 8);
-    g.fillStyle(0x6b4f3a);
-    for (const dx of [-20, 20]) g.fillRect(s / 2 + dx - 2, s / 2 - 8, 4, 22);
-    // Benches in the corners
-    g.fillStyle(0x8b5a2b);
-    for (const [bx, by] of [[10, 12], [s - 30, 12], [10, s - 18], [s - 30, s - 18]]) g.fillRect(bx, by, 20, 6);
-    const parts: Phaser.GameObjects.GameObject[] = [g];
+    const sq = squareTexture(this);
+    const parts: Phaser.GameObjects.GameObject[] = [this.add.image(sq.x, sq.y, sq.key).setOrigin(0)];
     if (status?.festival) {
-      const f = this.add.graphics();
-      // Bunting around the edge
-      const colors = [0xe63946, 0xffd166, 0x2a9d8f, 0x457b9d, 0xf4a261];
-      f.lineStyle(1, 0x5c3a1e);
-      f.lineBetween(4, 6, s - 4, 6);
-      f.lineBetween(4, s - 6, s - 4, s - 6);
-      for (let x = 8, i = 0; x < s - 8; x += 10, i++) {
-        f.fillStyle(colors[i % colors.length]);
-        f.fillTriangle(x, 6, x + 8, 6, x + 4, 13);
-        f.fillTriangle(x, s - 6, x + 8, s - 6, x + 4, s + 1);
-      }
-      // Market stalls
-      for (const [sx, sy, c] of [[18, s / 2 - 10, 0xe63946], [s - 40, s / 2 - 10, 0x2a9d8f]] as [number, number, number][]) {
-        f.fillStyle(0x8b5a2b).fillRect(sx, sy + 8, 22, 12);
-        f.fillStyle(c).fillRect(sx - 2, sy, 26, 8);
-      }
-      parts.push(f);
+      const f = festivalTexture(this);
+      parts.push(this.add.image(f.x, f.y, f.key).setOrigin(0));
       // Confetti drifting down over the square
+      const colors = [0xe43b44, 0xfee761, 0x63c74d, 0x0099db, 0xf77622];
       for (let i = 0; i < 10; i++) {
-        const bit = this.add.rectangle(10 + Math.random() * (s - 20), 0, 3, 3, colors[i % colors.length]);
+        const bit = this.add.rectangle(10 + Math.random() * (s - 20), 0, 4, 4, colors[i % colors.length]);
         this.tweens.add({ targets: bit, y: s - 10, x: bit.x + 10, angle: 360, duration: 2000 + Math.random() * 1500, delay: Math.random() * 2000, repeat: -1 });
         parts.push(bit);
       }
@@ -848,17 +562,14 @@ export class TownScene extends Phaser.Scene {
   /** A stone plinth with the legendary fish mounted on top, glinting. */
   private trophyView(fishId: string): Phaser.GameObjects.Container {
     const s = TILE * 2;
-    const g = this.add.graphics();
-    g.fillStyle(0x000000, 0.2).fillEllipse(s / 2, s - 6, s - 10, 12);
-    g.fillStyle(0x8d99ae).fillRect(12, s - 26, s - 24, 20);
-    g.fillStyle(0xadb5bd).fillRect(8, s - 30, s - 16, 6);
-    g.fillStyle(0xffd166).fillRect(s / 2 - 10, s - 18, 20, 5);
+    const pl = plinthTexture(this);
+    const plinth = this.add.image(pl.x, pl.y, pl.key).setOrigin(0);
     const type = FISH.find((f) => f.id === fishId)!;
-    const fish = this.add.image(s / 2, s - 44, `fish-${fishId}`).setScale(Math.min(1, (s - 8) / (type.width * 1.6)));
-    const shine = this.add.ellipse(s / 2, s - 44, fish.displayWidth + 12, fish.displayHeight + 12).setStrokeStyle(2, 0xffd166, 0.7);
-    this.tweens.add({ targets: shine, alpha: 0.2, duration: 900, yoyo: true, repeat: -1 });
-    this.tweens.add({ targets: fish, y: fish.y - 3, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-    return this.add.container(0, 0, [g, shine, fish]);
+    const fish = this.add.image(s / 2, 18, `fish-${fishId}`).setScale(type.width * 1.6 > s - 8 ? 0.5 : 1);
+    const shine = this.add.rectangle(s / 2 + 12, 10, 4, 4, 0xffffff);
+    this.tweens.add({ targets: shine, alpha: 0, scale: 0.5, duration: 700, yoyo: true, repeat: -1 });
+    this.tweens.add({ targets: fish, y: fish.y - 2, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    return this.add.container(0, 0, [plinth, fish, shine]);
   }
 
   /**
@@ -874,171 +585,13 @@ export class TownScene extends Phaser.Scene {
       const hit = dirs.find(([dc, dr]) => wet.has(`${placed.col + dc},${placed.row + dr}`));
       if (hit) [dx, dy] = [hit[2], hit[3]];
     }
-    const jetty = this.add.graphics();
-    jetty.fillStyle(0x8b5a2b).fillRect(6, 6, TILE - 12, TILE - 12);
-    jetty.fillStyle(0x6b4423);
-    for (let y = 9; y < TILE - 6; y += 5) jetty.fillRect(6, y, TILE - 12, 1);
-    jetty.fillStyle(0x5c3a1e).fillRect(TILE / 2 - 2, TILE / 2 - 2, 4, 4); // mooring post
-    const boat = this.add.graphics();
-    boat.fillStyle(0x7f4f24).fillEllipse(0, 0, 22, 10);
-    boat.fillStyle(0xd4a373).fillEllipse(0, -1, 16, 6);
-    boat.fillStyle(0x5c3a1e).fillRect(-1, -4, 2, 6);
+    const j = jettyTexture(this);
+    const jetty = this.add.image(j.x, j.y, j.key).setOrigin(0);
+    const boat = this.add.image(0, 0, rowboatTexture(this));
     boat.setPosition(TILE / 2 + dx * TILE * 0.75, TILE / 2 + dy * TILE * 0.75);
     if (dy !== 0) boat.setAngle(90);
     this.tweens.add({ targets: boat, y: boat.y + 2, duration: 1300 + Math.random() * 500, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     return this.add.container(0, 0, placed ? [jetty, boat] : [boat.setPosition(TILE / 2, TILE / 2)]);
-  }
-
-  /** Small props: decorations, and a road tile for the build menu preview. */
-  private drawDecor(def: BuildingDef): Phaser.GameObjects.Graphics {
-    const g = this.add.graphics();
-    const s = TILE;
-    switch (def.id) {
-      case 'road':
-        g.fillStyle(0xcbb89d);
-        g.fillRect(0, 0, s, s);
-        g.lineStyle(2, 0x9c8a70);
-        g.strokeRect(1, 1, s - 2, s - 2);
-        break;
-      case 'canal':
-        g.fillStyle(0x3fa7d6);
-        g.fillRect(0, 0, s, s);
-        g.fillStyle(0x8d99ae);
-        g.fillRect(0, 0, 3, s);
-        g.fillRect(s - 3, 0, 3, s);
-        g.fillStyle(0x7fd1f0, 0.7);
-        g.fillRect(8, 9, 9, 2);
-        g.fillRect(14, 19, 8, 2);
-        break;
-      case 'flowerBed':
-        g.fillStyle(0x7f5539);
-        g.fillRoundedRect(3, 9, s - 6, s - 14, 4);
-        for (const [x, y, c] of [[9, 14, 0xff6b9a], [16, 12, 0xffd166], [22, 15, 0xf28482], [12, 19, 0xcdb4db], [20, 20, 0xffffff]]) {
-          g.fillStyle(c);
-          g.fillCircle(x, y, 3);
-        }
-        break;
-      case 'tree':
-        g.fillStyle(0x000000, 0.15);
-        g.fillEllipse(s / 2, s - 4, 22, 7);
-        g.fillStyle(0x6b4f3a);
-        g.fillRect(s / 2 - 2, s / 2, 4, s / 2 - 3);
-        g.fillStyle(0x2d6a4f);
-        g.fillCircle(s / 2, s / 2 - 2, 11);
-        g.fillStyle(0x40916c);
-        g.fillCircle(s / 2 - 3, s / 2 - 5, 7);
-        break;
-      case 'bench':
-        g.fillStyle(0x5c3a1e);
-        g.fillRect(6, 18, 3, 7);
-        g.fillRect(s - 9, 18, 3, 7);
-        g.fillStyle(0x8b5a2b);
-        g.fillRect(4, 9, s - 8, 4);
-        g.fillRect(4, 15, s - 8, 5);
-        break;
-      case 'lampPost':
-        g.fillStyle(0xffe066, 0.25);
-        g.fillCircle(s / 2, 8, 11);
-        g.fillStyle(0x495057);
-        g.fillRect(s / 2 - 1.5, 8, 3, s - 11);
-        g.fillRect(s / 2 - 5, s - 5, 10, 3);
-        g.fillStyle(0xffe066);
-        g.fillCircle(s / 2, 8, 5);
-        break;
-      case 'palm': {
-        g.fillStyle(0x7f5539).fillRect(s / 2 - 2, 8, 4, s - 10);
-        g.fillStyle(0x2d6a4f);
-        for (const [dx, dy] of [[-11, -2], [11, -2], [-8, 4], [8, 4], [0, -6]]) g.fillEllipse(s / 2 + dx, 8 + dy, 14, 6);
-        g.fillStyle(0x9c6644).fillCircle(s / 2 - 2, 11, 2).fillCircle(s / 2 + 2, 11, 2);
-        break;
-      }
-      case 'goldenAnchor': {
-        g.lineStyle(3, 0xffd166);
-        g.lineBetween(s / 2, 6, s / 2, s - 6);
-        g.lineBetween(s / 2 - 7, 11, s / 2 + 7, 11);
-        g.strokeCircle(s / 2, 5, 3);
-        g.beginPath();
-        g.arc(s / 2, s - 14, 9, 0.2, Math.PI - 0.2, false);
-        g.strokePath();
-        break;
-      }
-      case 'koiPond': {
-        const c = s; // 2×2
-        g.fillStyle(0x6c757d).fillEllipse(c, c, 2 * c - 6, 2 * c - 14);
-        g.fillStyle(0x2a9d8f).fillEllipse(c, c, 2 * c - 14, 2 * c - 22);
-        for (const [fx, fy, col] of [[c - 10, c - 4, 0xff7f2a], [c + 8, c + 6, 0xffffff], [c + 2, c - 10, 0xe63946]] as [number, number, number][]) {
-          g.fillStyle(col).fillEllipse(fx, fy, 9, 4);
-        }
-        g.fillStyle(0x52b788).fillCircle(c + 14, c - 8, 5);
-        break;
-      }
-      case 'statue': {
-        // Plinth with a fisher holding up a big catch.
-        g.fillStyle(0x000000, 0.2).fillEllipse(s, 2 * s - 6, 2 * s - 12, 12);
-        g.fillStyle(0x8d99ae).fillRect(12, 2 * s - 24, 2 * s - 24, 18);
-        g.fillStyle(0xadb5bd).fillRect(8, 2 * s - 28, 2 * s - 16, 6);
-        g.fillStyle(0xb08d57);
-        g.fillRect(s - 5, 2 * s - 52, 10, 24);
-        g.fillCircle(s, 2 * s - 58, 7);
-        g.fillRect(s + 4, 2 * s - 66, 4, 20);
-        g.fillEllipse(s + 14, 2 * s - 66, 20, 8);
-        break;
-      }
-      case 'clockTower': {
-        g.fillStyle(0x000000, 0.2).fillRect(10, 2 * s - 8, 2 * s - 14, 8);
-        g.fillStyle(0xc9ada7).fillRect(14, 4, 2 * s - 28, 2 * s - 8);
-        g.fillStyle(0x4a4e69).fillTriangle(10, 8, s, -18, 2 * s - 10, 8);
-        g.fillStyle(0xfefae0).fillCircle(s, 22, 11);
-        g.lineStyle(2, 0x222222);
-        g.lineBetween(s, 22, s, 14);
-        g.lineBetween(s, 22, s + 6, 22);
-        g.fillStyle(0x6b4f3a).fillRect(s - 6, 2 * s - 20, 12, 16);
-        break;
-      }
-      case 'grandLighthouse': {
-        // 2×4: tall striped tower with a big lamp.
-        const h = 4 * s;
-        g.fillStyle(0x000000, 0.2).fillEllipse(s, h - 6, 2 * s - 8, 12);
-        g.fillStyle(0x6c757d).fillRect(8, h - 22, 2 * s - 16, 18);
-        for (let i = 0; i < 5; i++) {
-          g.fillStyle(i % 2 === 0 ? 0xf8f9fa : 0xd62828);
-          g.fillRect(14 + i, 24 + i * 16, 2 * s - 28 - 2 * i, 16);
-        }
-        g.fillStyle(0x333333).fillRect(12, 10, 2 * s - 24, 14);
-        g.fillStyle(0xffe066).fillRect(16, 12, 2 * s - 32, 10);
-        g.fillStyle(0xd62828).fillTriangle(10, 10, s, -8, 2 * s - 10, 10);
-        break;
-      }
-      case 'harborGate': {
-        // 4×2: a stone arch with flags.
-        const w = 4 * s;
-        g.fillStyle(0x000000, 0.2).fillRect(6, 2 * s - 8, w - 12, 8);
-        g.fillStyle(0xadb5bd);
-        g.fillRect(8, 10, 22, 2 * s - 12);
-        g.fillRect(w - 30, 10, 22, 2 * s - 12);
-        g.fillRect(8, 6, w - 16, 16);
-        g.fillStyle(0x8d99ae).fillRect(8, 20, w - 16, 4);
-        g.fillStyle(0xffd166).fillRect(w / 2 - 22, 9, 44, 9);
-        for (const fx of [14, w - 20]) {
-          g.fillStyle(0x5c3a1e).fillRect(fx, -18, 2, 26);
-          g.fillStyle(0x1d3557).fillTriangle(fx + 2, -18, fx + 16, -13, fx + 2, -8);
-        }
-        break;
-      }
-      case 'fountain': {
-        const c = s; // 2×2 footprint: centre at one tile in
-        g.fillStyle(0xadb5bd);
-        g.fillCircle(c, c, c - 3);
-        g.fillStyle(0x48cae4);
-        g.fillCircle(c, c, c - 8);
-        g.fillStyle(0xdee2e6);
-        g.fillCircle(c, c, 7);
-        g.fillStyle(0xffffff, 0.9);
-        g.fillCircle(c, c - 3, 3);
-        break;
-      }
-    }
-    return g;
   }
 
   private addBuildingView(b: PlacedBuilding, status: ViewStatus): void {
@@ -1090,8 +643,9 @@ export class TownScene extends Phaser.Scene {
   }
 
   /**
-   * Roads and canals share one layer, each drawn as connected strips: edges only where a tile has
-   * no neighbour of the same kind. Canals joined to the sea are water; the rest are dry ditches.
+   * Roads, canals and bridges, one image per tile, picked to join up with their neighbours.
+   * Canals joined to the sea are water; the rest are dry ditches. A road.png in assets/sprites
+   * replaces the built-in road tiles.
    */
   private drawTiles(): void {
     const tiles = state.buildings.filter((b) => defOf(b).category === 'tile');
@@ -1099,81 +653,50 @@ export class TownScene extends Phaser.Scene {
     const key = tiles.map((t) => `${t.type}${t.col},${t.row}${wet.has(`${t.col},${t.row}`) ? 'w' : ''}`).join('|');
     if (key === this.tileKey) return;
     this.tileKey = key;
-    const g = this.tileGfx.clear();
-    const at = (type: string) => new Set(tiles.filter((t) => t.type === type).map((t) => `${t.col},${t.row}`));
-    const kinds = { road: at('road'), canal: at('canal') };
+    this.tileImages.removeAll(true);
+    const at = (...types: string[]) => new Set(tiles.filter((t) => types.includes(t.type)).map((t) => `${t.col},${t.row}`));
+    // Bridges carry the road over the water, so they join both.
+    const roads = at('road', 'bridge');
+    const water = at('canal', 'bridge');
+    const canals = at('canal');
+    const ownRoad = hasSprite(this, 'road');
 
     for (const t of tiles) {
-      if (t.type === 'bridge') continue;
       const p = tileToWorld(t.col, t.row, 1);
-      const same = t.type === 'canal' ? kinds.canal : kinds.road;
-      const isWet = t.type === 'canal' && wet.has(`${t.col},${t.row}`);
-      const [fill, edge] = t.type === 'road' ? [0xcbb89d, 0x9c8a70] : isWet ? [0x3fa7d6, 0x8d99ae] : [0x9c6644, 0x6b4f3a];
-      g.fillStyle(fill);
-      g.fillRect(p.x, p.y, TILE, TILE);
-      if (isWet) {
-        g.fillStyle(0x7fd1f0, 0.6);
-        g.fillRect(p.x + 7, p.y + 9, 9, 2);
-        g.fillRect(p.x + 15, p.y + 19, 8, 2);
+      const here = `${t.col},${t.row}`;
+      const same = t.type === 'road' ? roads : water;
+      const edges = {
+        n: same.has(`${t.col},${t.row + 1}`),
+        s: same.has(`${t.col},${t.row - 1}`),
+        e: same.has(`${t.col + 1},${t.row}`),
+        w: same.has(`${t.col - 1},${t.row}`),
+      };
+      if (t.type === 'road' && ownRoad) {
+        this.tileImages.add(addSprite(this, 'road', p.x, p.y).setDisplaySize(TILE, TILE));
+        continue;
       }
-      // A canal in the bottom row cuts through the beach into the sea.
-      const openToSea = t.type === 'canal' && t.row === 0;
-      if (openToSea) {
-        g.fillStyle(0x3fa7d6);
-        g.fillRect(p.x, p.y + TILE, TILE, SHORE_H + 2);
-      }
-      const w = t.type === 'canal' ? 3 : 2;
-      g.fillStyle(edge);
-      if (!same.has(`${t.col},${t.row + 1}`)) g.fillRect(p.x, p.y, TILE, w);
-      if (!same.has(`${t.col},${t.row - 1}`) && !openToSea) g.fillRect(p.x, p.y + TILE - w, TILE, w);
-      if (!same.has(`${t.col - 1},${t.row}`)) g.fillRect(p.x, p.y, w, TILE + (openToSea ? SHORE_H : 0));
-      if (!same.has(`${t.col + 1},${t.row}`)) g.fillRect(p.x + TILE - w, p.y, w, TILE + (openToSea ? SHORE_H : 0));
-      if (openToSea) {
-        // The boardwalk crosses the canal mouth on a little plank bridge, gaps showing the water.
-        const top = p.y + TILE + 3;
-        for (let y = top; y < top + SHORE_H - 10; y += 8) {
-          g.fillStyle(0xb07d4f);
-          g.fillRect(p.x - 2, y, TILE + 4, 5);
+      let tex: string;
+      if (t.type === 'road') tex = tileTexture(this, 'road', edges);
+      else if (t.type === 'canal') {
+        // A canal in the bottom row cuts through the boardwalk into the sea.
+        if (t.row === 0) {
+          edges.s = true;
+          this.tileImages.add(this.add.image(p.x, p.y + TILE, canalMouthTexture(this, SHORE_H)).setOrigin(0));
         }
-        g.fillStyle(0x6b4423);
-        g.fillRect(p.x - 2, top - 2, TILE + 4, 2);
-        g.fillRect(p.x - 2, top + SHORE_H - 12, TILE + 4, 2);
-      }
-    }
-    this.drawBridges(g, tiles, kinds.canal);
-  }
-
-  /** Wooden bridge decks across canals, planks running the way people walk, rails on the sides. */
-  private drawBridges(g: Phaser.GameObjects.Graphics, tiles: PlacedBuilding[], canals: Set<string>): void {
-    for (const t of tiles) {
-      if (t.type !== 'bridge') continue;
-      const p = tileToWorld(t.col, t.row, 1);
-      // A canal flowing left-right is crossed up-down, and vice versa.
-      const flowsSideways = canals.has(`${t.col - 1},${t.row}`) || canals.has(`${t.col + 1},${t.row}`);
-      g.fillStyle(0xb07d4f).fillRect(p.x + 1, p.y + 1, TILE - 2, TILE - 2);
-      g.fillStyle(0x8b5a2b);
-      for (let i = 6; i < TILE - 2; i += 6) {
-        if (flowsSideways) g.fillRect(p.x + 1, p.y + i, TILE - 2, 1);
-        else g.fillRect(p.x + i, p.y + 1, 1, TILE - 2);
-      }
-      g.fillStyle(0x5c3a1e);
-      if (flowsSideways) {
-        g.fillRect(p.x, p.y, 3, TILE);
-        g.fillRect(p.x + TILE - 3, p.y, 3, TILE);
+        tex = tileTexture(this, 'canal', edges, { wet: wet.has(here) });
       } else {
-        g.fillRect(p.x, p.y, TILE, 3);
-        g.fillRect(p.x, p.y + TILE - 3, TILE, 3);
+        // A canal flowing left-right is crossed up-down, and vice versa.
+        const sideways = canals.has(`${t.col - 1},${t.row}`) || canals.has(`${t.col + 1},${t.row}`);
+        const near = [here, `${t.col - 1},${t.row}`, `${t.col + 1},${t.row}`, `${t.col},${t.row - 1}`, `${t.col},${t.row + 1}`];
+        tex = tileTexture(this, 'bridge', edges, { sideways, wet: near.some((k) => wet.has(k)) });
       }
+      this.tileImages.add(this.add.image(p.x, p.y, tex).setOrigin(0));
     }
   }
 
   /** Chimney top in building-local px, for homes. */
   private chimneyOf(def: BuildingDef): { x: number; y: number } | undefined {
-    if (def.id === 'cottage') return { x: def.w * TILE * 0.68 + 3.5, y: 8 };
-    if (def.id === 'apartment') return { x: def.w * TILE * 0.74, y: 18 };
-    if (def.id === 'playerHouse') return { x: def.w * TILE * 0.72, y: 16 };
-    if (def.id === 'bathhouse') return { x: def.w * TILE * 0.7, y: 24 };
-    return undefined;
+    return CHIMNEYS[def.id];
   }
 
   /** Smoke rises from the chimneys of homes where somebody lives. */
@@ -1186,7 +709,7 @@ export class TownScene extends Phaser.Scene {
       if (!chimney || !lived || !this.isOnScreen(b) || Math.random() < 0.4) continue;
       if (this.ghost?.moving === b) continue;
       const pos = tileToWorld(b.col, b.row, defOf(b).h);
-      const puff = this.add.circle(pos.x + chimney.x, pos.y + chimney.y - 2, 3.5, 0xeeeeee, 0.65).setDepth(30);
+      const puff = this.add.rectangle(pos.x + chimney.x, pos.y + chimney.y - 2, 6, 6, 0xc0cbdc, 0.75).setDepth(30);
       this.tweens.add({
         targets: puff,
         y: puff.y - 30,
@@ -1342,13 +865,17 @@ export class TownScene extends Phaser.Scene {
 
   private createBottomBars(): void {
     const y = GAME_HEIGHT - BOTTOM_BAR_H / 2 - 6;
-    const bg = () => this.add.rectangle(0, GAME_HEIGHT - BOTTOM_BAR_H, GAME_WIDTH, BOTTOM_BAR_H, 0x000000, 0.35).setOrigin(0);
+    const bg = () =>
+      this.add.container(0, 0, [
+        this.add.rectangle(0, GAME_HEIGHT - BOTTOM_BAR_H, GAME_WIDTH, BOTTOM_BAR_H, COLORS.panel, 0.85).setOrigin(0),
+        this.add.rectangle(0, GAME_HEIGHT - BOTTOM_BAR_H - 2, GAME_WIDTH, 2, COLORS.ink).setOrigin(0),
+      ]);
 
     this.questButton = makeButton(this, GAME_WIDTH / 2, y, 132, 56, 'Quests', () => this.openQuests(), COLORS.buy, 20);
     // Red badge with the number of quests ready to claim.
     this.questBadgeText = makeText(this, 0, 0, '', 13).setOrigin(0.5);
     this.questBadge = this.add.container(GAME_WIDTH / 2 + 58, y - 26, [
-      this.add.circle(0, 0, 11, 0xe63946).setStrokeStyle(2, 0xffffff),
+      this.add.image(0, 0, pipTexture(this, 'red')),
       this.questBadgeText,
     ]);
     this.normalBar = this.add.container(0, 0, [
@@ -1722,7 +1249,7 @@ export class TownScene extends Phaser.Scene {
       const row = makeListRow(this, y, rowH, o.ok ? pick : null, o.current);
       row.add(makeText(this, 48, y - 9, o.label, 17).setOrigin(0, 0.5).setAlpha(o.ok ? 1 : 0.5));
       row.add(makeText(this, 48, y + 12, o.sub, 13).setOrigin(0, 0.5).setAlpha(0.7));
-      if (o.current) row.add(makeText(this, GAME_WIDTH - 44, y, '✓', 20).setOrigin(1, 0.5).setColor('#8ee88e'));
+      if (o.current) row.add(makeText(this, GAME_WIDTH - 44, y, 'Now', 16).setOrigin(1, 0.5).setColor('#63c74d'));
       m.add(row);
       y += rowH;
     }
@@ -1769,7 +1296,7 @@ export class TownScene extends Phaser.Scene {
     let y = m.top + 92;
     for (const q of state.quests) {
       const progress = Math.min(q.amount, questProgress(q));
-      const card = this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 12, 0x264b73);
+      const card = this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 12, COLORS.card).setStrokeStyle(2, COLORS.ink);
       if (q.done) card.setStrokeStyle(2, 0x8ee88e);
       else if (q.daily) card.setStrokeStyle(2, 0xffd166);
       m.add(card);
@@ -1778,8 +1305,8 @@ export class TownScene extends Phaser.Scene {
       // Progress bar
       const barW = 210;
       const frac = q.amount > 0 ? progress / q.amount : 1;
-      m.add(this.add.rectangle(46, y + 48, barW, 14, 0x0b2545).setOrigin(0, 0.5));
-      m.add(this.add.rectangle(46, y + 48, Math.max(2, barW * frac), 14, q.done ? 0x52b788 : 0xf5a623).setOrigin(0, 0.5));
+      m.add(this.add.rectangle(46, y + 48, barW, 14, COLORS.track).setOrigin(0, 0.5));
+      m.add(this.add.rectangle(46, y + 48, Math.max(2, barW * frac), 14, q.done ? COLORS.complete : COLORS.progress).setOrigin(0, 0.5));
       const unit = q.kind === 'earnFishing' ? '$' : '';
       const suffix = q.kind === 'happiness' ? '%' : '';
       m.text(46 + barW + 8, y + 48, `${unit}${progress}${suffix}/${unit}${q.amount}${suffix}`, 13, 0).setAlpha(0.85);
@@ -1831,13 +1358,13 @@ export class TownScene extends Phaser.Scene {
     for (const o of state.orders) {
       const have = Math.min(o.amount, onIce(o.fish));
       const ready = canDeliver(o);
-      const card = this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 12, 0x264b73);
+      const card = this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 12, COLORS.card).setStrokeStyle(2, COLORS.ink);
       if (ready) card.setStrokeStyle(2, 0x8ee88e);
       m.add(card);
       m.text(46, y + 18, orderTitle(o), 16, 0).setWordWrapWidth(GAME_WIDTH - 100);
       const barW = 210;
-      m.add(this.add.rectangle(46, y + 48, barW, 14, 0x0b2545).setOrigin(0, 0.5));
-      m.add(this.add.rectangle(46, y + 48, Math.max(2, (barW * have) / o.amount), 14, ready ? 0x52b788 : 0xf5a623).setOrigin(0, 0.5));
+      m.add(this.add.rectangle(46, y + 48, barW, 14, COLORS.track).setOrigin(0, 0.5));
+      m.add(this.add.rectangle(46, y + 48, Math.max(2, (barW * have) / o.amount), 14, ready ? COLORS.complete : COLORS.progress).setOrigin(0, 0.5));
       m.text(46 + barW + 8, y + 48, `${have}/${o.amount} on ice`, 13, 0).setAlpha(0.85);
       const b = orderBuilding(o);
       const boost = b ? ` + ${b ? defOf(b).name : ''} +${ORDERS.boostPerDelivery * 100}%` : '';
@@ -1866,7 +1393,7 @@ export class TownScene extends Phaser.Scene {
   private openProjects(square: PlacedBuilding): void {
     this.closeModal();
     this.panelFor = undefined;
-    const cardH = 96;
+    const cardH = 106;
     const m = (this.modal = new Modal(this, 150 + PROJECTS.length * cardH));
     m.text(GAME_WIDTH / 2, m.top + 30, 'Town projects', 26);
     m.text(GAME_WIDTH / 2, m.top + 60, `Paid in ${PROJECT_CHUNKS} parts · works for good once built`, 13).setAlpha(0.8);
@@ -1875,17 +1402,17 @@ export class TownScene extends Phaser.Scene {
       const funded = projectFunded(p);
       const done = funded >= p.cost;
       const open = projectUnlocked(p);
-      const card = this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 10, 0x264b73);
+      const card = this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 10, COLORS.card).setStrokeStyle(2, COLORS.ink);
       if (done) card.setStrokeStyle(2, 0x8ee88e);
       m.add(card);
       m.text(46, y + 14, p.name, 17, 0).setAlpha(open ? 1 : 0.6);
-      m.text(46, y + 36, p.effect, 13, 0).setColor(COLORS.gold).setWordWrapWidth(GAME_WIDTH - 200);
+      m.text(46, y + 26, p.effect, 13, 0).setOrigin(0, 0).setColor(COLORS.gold).setWordWrapWidth(GAME_WIDTH - 200);
       const barW = 200;
-      m.add(this.add.rectangle(46, y + 66, barW, 12, 0x0b2545).setOrigin(0, 0.5));
-      m.add(this.add.rectangle(46, y + 66, Math.max(2, (barW * funded) / p.cost), 12, done ? 0x52b788 : 0xf5a623).setOrigin(0, 0.5));
-      m.text(46 + barW + 8, y + 66, `$${formatCoins(funded)}/$${formatCoins(p.cost)}`, 12, 0).setAlpha(0.8);
+      m.add(this.add.rectangle(46, y + 78, barW, 12, COLORS.track).setOrigin(0, 0.5));
+      m.add(this.add.rectangle(46, y + 78, Math.max(2, (barW * funded) / p.cost), 12, done ? COLORS.complete : COLORS.progress).setOrigin(0, 0.5));
+      m.text(46 + barW + 8, y + 78, `$${formatCoins(funded)}/$${formatCoins(p.cost)}`, 12, 0).setAlpha(0.8);
       const btnX = GAME_WIDTH - 86;
-      if (done) m.text(btnX, y + 24, 'Built ✓', 16).setColor('#8ee88e');
+      if (done) m.text(btnX, y + 24, 'Built!', 16).setColor('#8ee88e');
       else if (!open) m.text(btnX, y + 24, `House Lv ${p.unlockLevel}`, 14).setColor('#ffb4a2');
       else {
         const chunk = nextChunk(p);
@@ -1919,7 +1446,7 @@ export class TownScene extends Phaser.Scene {
     for (const item of stock) {
       const price = itemPrice(item);
       const got = boughtThisVisit(item);
-      m.add(this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 10, 0x3c2a4d).setStrokeStyle(2, 0xe7b6f7, 0.5));
+      m.add(this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 10, 0x68386c).setStrokeStyle(2, 0xb55088));
       m.text(46, y + 16, item.name, 18, 0).setColor('#e7b6f7');
       m.text(46, y + 40, item.description, 13, 0).setOrigin(0, 0).setWordWrapWidth(GAME_WIDTH - 200).setAlpha(0.85);
       const btn = makeButton(this, GAME_WIDTH - 86, y + 40, 110, 44, got ? 'Bought' : `$${formatCoins(price)}`, () => {
@@ -1940,15 +1467,14 @@ export class TownScene extends Phaser.Scene {
   private refreshMerchantBoat(): void {
     const here = merchantHere();
     if (here && !this.merchantBoat) {
-      const g = this.add.graphics();
-      g.fillStyle(0x5a189a).fillPoints(
-        [new Phaser.Math.Vector2(-40, -4), new Phaser.Math.Vector2(40, -4), new Phaser.Math.Vector2(30, 12), new Phaser.Math.Vector2(-34, 12)],
-        true,
-      );
-      g.fillStyle(0xffd166).fillRect(-40, -4, 80, 3);
-      g.lineStyle(2, 0x6b4f3a).lineBetween(0, -4, 0, -50);
-      g.fillStyle(0xe7b6f7).fillTriangle(2, -48, 2, -10, 30, -10);
-      g.fillStyle(0xc77dff).fillTriangle(-2, -44, -2, -10, -24, -10);
+      const g = pixImage(this, 'merchant-boat', -42, -52, 84, 66, (p) => {
+        p.fillStyle(PAL.plum).fillPoints([{ x: -40, y: -4 }, { x: 40, y: -4 }, { x: 30, y: 12 }, { x: -34, y: 12 }]);
+        p.fillStyle(PAL.amber).fillRect(-40, -4, 80, 4);
+        p.lineStyle(2, PAL.brown).lineBetween(0, -4, 0, -50);
+        p.fillStyle(PAL.white).fillTriangle(2, -48, 2, -10, 30, -10);
+        p.fillStyle(PAL.magenta).fillTriangle(-2, -44, -2, -10, -24, -10);
+        p.outline();
+      });
       const label = makeText(this, 0, -66, 'Merchant ›', 15).setOrigin(0.5).setColor('#e7b6f7');
       const boat = this.add.container(DOCK.x - 70, SHORE_H + 90, [g, label]).setDepth(5).setSize(90, 90);
       this.tweens.add({ targets: g, y: 2, duration: 1000, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
@@ -2001,7 +1527,7 @@ export class TownScene extends Phaser.Scene {
     this.closeModal();
     this.buildTab = tab;
     const all = BUILDINGS.filter((d) => tabOf(d) === tab);
-    const rowH = 100;
+    const rowH = 112;
     // Page the list when a tab has more rows than fit on short screens.
     const fit = Math.max(1, Math.floor((GAME_HEIGHT - 110 - 230) / rowH));
     const pages = Math.ceil(all.length / fit);
@@ -2032,33 +1558,33 @@ export class TownScene extends Phaser.Scene {
       const maxed = owned >= cap;
       // At the limit for this town level, but more are allowed after a house upgrade.
       const levelLimited = maxed && cap < def.maxCount;
-      const preview = this.drawBuilding(def).setScale(Math.min(1.4, 56 / (Math.max(def.w, def.h) * TILE)));
-      preview.setPosition(36, y - 28);
+      // Scaled by a whole factor or a half, so the pixel art stays even.
+      const preview = this.drawBuilding(def).setScale(2 / Math.max(def.w, def.h));
+      preview.setPosition(36, y - 32);
       m.add(preview);
-      m.text(110, y - 34, def.name, 18, 0);
-      m.text(110, y - 12, this.buildSummary(def), 13, 0).setColor(COLORS.gold);
-      m.text(110, y + 2, def.description, 13, 0).setOrigin(0, 0).setWordWrapWidth(190).setAlpha(0.8);
-      const water = def.needsWater ? ' · needs water' : '';
-      if (levelLimited) {
-        m.text(110, y + 38, `Owned ${owned}/${cap} · more at house Lv ${townLevel() + 1}`, 12, 0).setColor('#ffb4a2');
-      } else if (def.maxCount > 1 && def.category !== 'tile' && def.category !== 'decor') {
-        m.text(110, y + 38, `Owned ${owned}/${cap}${water}`, 12, 0).setColor(water ? '#8ecae6' : '#ffffff').setAlpha(water ? 1 : 0.6);
-      } else if (water) {
-        m.text(110, y + 38, 'Needs water (beside a canal)', 12, 0).setColor('#8ecae6');
-      }
+      m.text(110, y - 40, def.name, 18, 0);
+      m.text(110, y - 20, this.buildSummary(def), 13, 0).setColor(COLORS.gold);
+      m.text(110, y - 10, def.description, 13, 0).setOrigin(0, 0).setWordWrapWidth(212).setAlpha(0.8);
       const unlocked = isUnlocked(def);
       // Trophies wait for their legendary fish rather than a house level.
       const needsFish = !!def.trophy && !unlocked;
       const fromMerchant = !!def.merchantOnly && cap === 0;
-      if (!unlocked) {
-        preview.setAlpha(0.35);
+      const water = def.needsWater ? ' · needs water' : '';
+      // One footnote per row, the most important one.
+      let note: { text: string; color: string; alpha?: number } | undefined;
+      if (fromMerchant) note = { text: 'Sold by the traveling merchant', color: '#e7b6f7' };
+      else if (!unlocked) {
         const why = needsFish ? `Catch the legendary ${FISH.find((f) => f.id === def.trophy)!.name}` : `Unlocks at house level ${def.unlockLevel}`;
-        m.text(110, y + 38, why, 12, 0).setColor('#ffb4a2');
-      }
+        note = { text: why, color: '#ffb4a2' };
+      } else if (levelLimited) note = { text: `Owned ${owned}/${cap} · more at house Lv ${townLevel() + 1}`, color: '#ffb4a2' };
+      else if (def.maxCount > 1 && def.category !== 'tile' && def.category !== 'decor') {
+        note = { text: `Owned ${owned}/${cap}${water}`, color: water ? '#8ecae6' : '#ffffff', alpha: water ? 1 : 0.6 };
+      } else if (water) note = { text: 'Needs water (beside a canal)', color: '#8ecae6' };
+      if (note) m.text(110, y + 42, note.text, 12, 0).setColor(note.color).setAlpha(note.alpha ?? 1);
+      if (!unlocked) preview.setAlpha(0.35);
       const affordable = state.coins >= cost;
-      if (fromMerchant) m.text(110, y + 38, 'Sold by the traveling merchant', 12, 0).setColor('#e7b6f7');
       const label = fromMerchant ? 'Merchant' : needsFish ? 'Catch' : !unlocked ? `Lv ${def.unlockLevel}` : maxed ? (def.maxCount === 1 ? 'Built' : 'Max') : cost === 0 ? 'Place' : `$${formatCoins(cost)}`;
-      const btn = makeButton(this, GAME_WIDTH - 80, y, 100, 46, label, () => {
+      const btn = makeButton(this, GAME_WIDTH - 72, y, 88, 46, label, () => {
         if (!unlocked || maxed || !affordable) return;
         this.closeModal();
         if (def.category === 'tile') this.enterPaintMode(def);
@@ -2083,7 +1609,7 @@ export class TownScene extends Phaser.Scene {
     const pay = def.incomePerWorker?.(1) ?? 0;
     const jobText = `${jobs} job${jobs === 1 ? '' : 's'}`;
     const boost = def.standBoostPerWorker?.(1);
-    if (boost) return `${size} · ${jobText} · +${Math.round(boost * 100)}% Fish Stands each`;
+    if (boost) return `${size} · ${jobText} · stands +${Math.round(boost * 100)}% each`;
     // Kept short (no size) so the line fits beside the price button.
     if (def.offlineHoursPerWorker) return `${jobText} · +${def.offlineHoursPerWorker(1)}h cap each`;
     if (def.moodPerWorker) return `${jobText} · +${def.moodPerWorker.amount(1)} mood each`;
@@ -2148,7 +1674,10 @@ export class TownScene extends Phaser.Scene {
       const shown = avg ?? Math.min(100, mood.total + 10);
       const color = shown >= 65 ? '#8ee88e' : shown < 35 ? '#ff8a8a' : COLORS.gold;
       m.text(40, y, `Happiness ${Math.round(shown)}%${avg === null ? ' (expected)' : ''}`, 18, 0).setColor(color);
-      const parts = [`base ${mood.base}`, `decor +${mood.decor}`, `road +${mood.road}`];
+      // Only what actually adds something, so the line fits.
+      const parts = [`base ${mood.base}`];
+      if (mood.decor > 0) parts.push(`decor +${mood.decor}`);
+      if (mood.road > 0) parts.push(`road +${mood.road}`);
       if (mood.water > 0) parts.push(`water +${mood.water}`);
       if (mood.tavern > 0) parts.push(`tavern +${mood.tavern}`);
       if (mood.town > 0) parts.push(`town +${mood.town}`);
@@ -2172,7 +1701,7 @@ export class TownScene extends Phaser.Scene {
       m.text(40, y, `Workers ${workers.length}/${slots}`, 18, 0);
       const wage = wagePerWorker(b);
       if (wage > 0) m.text(40, y + 20, `wages $${fmtRate(wage)}/min each`, 12, 0).setAlpha(0.6);
-      const star = makeButton(this, right, y, 120, 38, b.priority ? '★ Priority' : '☆ Priority', () => {
+      const star = makeButton(this, right, y, 120, 38, b.priority ? '* Priority' : 'Priority', () => {
         togglePriority(b);
         reopen();
       }, b.priority ? COLORS.primary : COLORS.neutral, 16);
@@ -2236,11 +1765,16 @@ export class TownScene extends Phaser.Scene {
       m.text(40, y - 10, maxed ? 'Fully upgraded' : `Upgrade to Lv ${b.level + 1}`, 18, 0);
       const need = maxed ? undefined : upgradeNeed(b);
       const fishOk = !need || onIce(need.fish) >= need.amount;
+      // Room the gain text takes beyond one line, when it wraps beside the button.
+      let extra = 0;
       if (!maxed) {
-        if (waiting) m.text(40, y + 14, `Needs your house at Lv ${b.level + 1}`, 14, 0).setColor('#ffb4a2');
-        else m.text(40, y + 14, this.upgradeGain(b), 14, 0).setAlpha(0.75);
+        const gain = waiting
+          ? m.text(40, y + 4, `Needs your house at Lv ${b.level + 1}`, 14, 0).setColor('#ffb4a2')
+          : m.text(40, y + 4, this.upgradeGain(b), 14, 0).setAlpha(0.75);
+        gain.setOrigin(0, 0).setWordWrapWidth(right - 55 - 48);
+        extra = Math.max(0, gain.height - 22);
         if (need) {
-          m.text(40, y + 36, `${fishOk ? '✓' : '✗'} ${need.amount} ${fishName(need.fish)} on ice (have ${onIce(need.fish)})`, 13, 0)
+          m.text(40, y + 36 + extra, `${fishOk ? '[x]' : '[ ]'} ${need.amount} ${fishName(need.fish)} on ice (have ${onIce(need.fish)})`, 13, 0)
             .setColor(fishOk ? '#8ee88e' : '#ff8a8a');
         }
         const label = waiting ? `House ${b.level + 1}` : `$${formatCoins(cost)}`;
@@ -2253,7 +1787,7 @@ export class TownScene extends Phaser.Scene {
         btn.setEnabledLook(!waiting && fishOk && state.coins >= cost, COLORS.buy);
         m.add(btn);
       }
-      y += need ? 92 : 70;
+      y += (need ? 92 : 70) + extra;
     }
 
     // Fishing gear sold here
@@ -2263,7 +1797,7 @@ export class TownScene extends Phaser.Scene {
       const cap = upgradeLevelCap(up);
       const upCost = upgradeCost(up, level);
       m.text(40, y - 12, up.name, 18, 0);
-      const desc = level >= up.maxLevel ? `${up.describe(level)} (max)` : `${up.describe(level)} → ${up.describe(level + 1)}`;
+      const desc = level >= up.maxLevel ? `${up.describe(level)} (max)` : `${up.describe(level)} > ${up.describe(level + 1)}`;
       m.text(40, y + 14, desc, 14, 0).setAlpha(0.75);
       if (level < up.maxLevel) {
         const locked = level >= cap;
@@ -2404,7 +1938,7 @@ export class TownScene extends Phaser.Scene {
       m.text(74, y - 18, `${area.name}: ${area.blurb}`, 13, 0)
         .setOrigin(0, 0)
         .setColor(COLORS.gold)
-        .setWordWrapWidth(GAME_WIDTH - 200);
+        .setWordWrapWidth(GAME_WIDTH - 214);
       if (!unlocked) m.text(74, y + 32, `Unlocks at house level ${area.unlockLevel}`, 12, 0).setColor('#ffb4a2');
       const label = owned ? 'Owned' : !unlocked ? `Lv ${area.unlockLevel}` : !open ? 'Closed' : `$${formatCoins(area.cost)}`;
       const btn = makeButton(this, GAME_WIDTH - 84, y - 8, 100, 46, label, () => {
@@ -2426,7 +1960,7 @@ export class TownScene extends Phaser.Scene {
     const level = b.level;
     const next = TOWN_LEVELS[level + 1];
     const unlocks = next ? unlocksAt(level + 1) : [];
-    const height = next ? (next.fish ? 450 : 424) : 260;
+    const height = next ? (next.fish ? 450 : 424) : 320;
     const m = (this.modal = new Modal(this, height));
     const reopen = () => this.openHousePanel(b);
 
@@ -2442,14 +1976,14 @@ export class TownScene extends Phaser.Scene {
       m.text(40, y, `Upgrade to Lv ${level + 1}`, 18, 0);
       y += 30;
       const residentsOk = state.residents.length >= next.residents;
-      m.text(40, y, `${residentsOk ? '✓' : '✗'} ${state.residents.length}/${next.residents} residents`, 15, 0).setColor(
+      m.text(40, y, `${residentsOk ? '[x]' : '[ ]'} ${state.residents.length}/${next.residents} residents`, 15, 0).setColor(
         residentsOk ? '#8ee88e' : '#ff8a8a',
       );
       y += 26;
       if (next.fish) {
         const have = onIce(next.fish.fish);
         const ok = have >= next.fish.amount;
-        m.text(40, y, `${ok ? '✓' : '✗'} ${next.fish.amount} ${fishName(next.fish.fish)} on ice (have ${have})`, 15, 0).setColor(
+        m.text(40, y, `${ok ? '[x]' : '[ ]'} ${next.fish.amount} ${fishName(next.fish.fish)} on ice (have ${have})`, 15, 0).setColor(
           ok ? '#8ee88e' : '#ff8a8a',
         );
         y += 26;
@@ -2513,10 +2047,9 @@ export class TownScene extends Phaser.Scene {
     for (const p of perks) {
       const rank = perkRank(p.id);
       const open = perkOpen(p);
-      const pips = '●'.repeat(rank) + '○'.repeat(p.maxRank - rank);
-      m.text(40, y - 16, `${p.name}  ${pips}`, 17, 0).setAlpha(open ? 1 : 0.5);
+      m.text(40, y - 16, `${p.name}  ${rank}/${p.maxRank}`, 17, 0).setAlpha(open ? 1 : 0.5);
       const now = rank > 0 ? p.describe(rank) : 'Not learned yet';
-      const next = rank < p.maxRank ? ` → ${p.describe(rank + 1)}` : '';
+      const next = rank < p.maxRank ? ` > ${p.describe(rank + 1)}` : '';
       const info = open ? `${rank > 0 ? now : ''}${rank > 0 ? next : p.describe(1)}` : `Needs ${PERK_TIER_POINTS[p.tier]} points in this branch`;
       m.text(40, y + 8, info, 13, 0)
         .setColor(open ? COLORS.gold : '#ffb4a2')

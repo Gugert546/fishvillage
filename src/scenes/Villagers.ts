@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GRID_X, TILE } from '../config';
 import { WalkGrid, type Tile } from '../pathfinding';
 import { state, type PlacedBuilding, type Resident } from '../state';
+import { PLAYER_LOOK, lookFor, personShadowTexture, personTexture, type Look } from '../art/people';
 
 const MAX_WALKERS = 14;
 const SCHEDULE_MS = 500;
@@ -15,42 +16,25 @@ const LINGER_MIN = 3;
 const LINGER_MAX = 8;
 const DEPTH = 12;
 
-const SHIRTS = [0xe76f51, 0x2a9d8f, 0xe9c46a, 0x8ab17d, 0x9d4edd, 0x457b9d, 0xf4a261, 0xd62828, 0x6d597a];
-const SKIN = [0xf2c9a0, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
-const HAIR = [0x3b2a20, 0x6b4f3a, 0xd4a373, 0x222222, 0xb5651d];
+/** Feet sit this far down the person texture (it has a pixel of outline padding below). */
+const FEET = 24 / 26;
+
+function makeFigure(scene: Phaser.Scene, look: Look): Phaser.GameObjects.Container {
+  const shadow = scene.add.image(0, 0, personShadowTexture(scene));
+  const body = scene.add.image(0, 0, personTexture(scene, look, 0)).setOrigin(0.5, FEET);
+  const c = scene.add.container(0, 0, [shadow, body]);
+  c.setData('body', body).setData('frames', [personTexture(scene, look, 0), personTexture(scene, look, 1)]);
+  return c;
+}
 
 /** A tiny villager figure, feet at (0, 0). Colours are stable per resident id. */
 export function makePerson(scene: Phaser.Scene, id: number): Phaser.GameObjects.Container {
-  const g = scene.add.graphics();
-  g.fillStyle(0x000000, 0.2);
-  g.fillEllipse(0, 0, 10, 4);
-  g.fillStyle(0x3d405b);
-  g.fillRect(-3, -6, 2.5, 6);
-  g.fillRect(0.5, -6, 2.5, 6);
-  g.fillStyle(SHIRTS[id % SHIRTS.length]);
-  g.fillRoundedRect(-4, -13, 8, 8, 2);
-  g.fillStyle(SKIN[(id * 7) % SKIN.length]);
-  g.fillCircle(0, -16, 3.5);
-  g.fillStyle(HAIR[(id * 3) % HAIR.length]);
-  g.fillRect(-3.5, -20, 7, 2.5);
-  return scene.add.container(0, 0, [g]);
+  return makeFigure(scene, lookFor(id));
 }
 
 /** You, the fisher from the dock: orange jacket and red cap. Feet at (0, 0). */
 export function makePlayer(scene: Phaser.Scene): Phaser.GameObjects.Container {
-  const g = scene.add.graphics();
-  g.fillStyle(0x000000, 0.2);
-  g.fillEllipse(0, 0, 11, 4);
-  g.fillStyle(0x2f4858);
-  g.fillRect(-3, -7, 2.5, 7);
-  g.fillRect(0.5, -7, 2.5, 7);
-  g.fillStyle(0xe0a030);
-  g.fillRoundedRect(-4.5, -15, 9, 9, 2);
-  g.fillStyle(0xf2c9a0);
-  g.fillCircle(0, -18, 3.8);
-  g.fillStyle(0xc0392b);
-  g.fillRect(-4.5, -23, 9, 3);
-  return scene.add.container(0, 0, [g]);
+  return makeFigure(scene, PLAYER_LOOK);
 }
 
 export function tileCenter(t: Tile): { x: number; y: number } {
@@ -200,10 +184,12 @@ export class Villagers {
       s.setPosition(s.x + (dx / dist) * stepLen, s.y + (dy / dist) * stepLen);
     }
     if (Math.abs(dx) > 0.5) s.setScale(dx < 0 ? -1 : 1, 1);
-    // Little walking bob
+    // Little walking bob, legs swapping each step
     w.phase += dt * 14;
-    const body = s.list[0] as Phaser.GameObjects.Graphics;
-    body.y = -Math.abs(Math.sin(w.phase)) * 1.5;
+    const body = s.getData('body') as Phaser.GameObjects.Image;
+    const frames = s.getData('frames') as string[];
+    body.y = -Math.round(Math.abs(Math.sin(w.phase)) * 1.5);
+    body.setTexture(frames[Math.floor(w.phase / Math.PI) % 2]);
   }
 
   private arrive(id: number, w: Walker, now: number): void {

@@ -29,6 +29,9 @@ import { questEvent, takeQuestToasts } from '../quests';
 import { hookBonus, marketBonus, sonarRange } from '../services';
 import { boatUnlocked, consumeBait, currentArea, cycleBait, ownsArea, readyBait, sailTo, stormBound, townLevel } from '../town';
 import { makeDarknessTexture, makeTextures } from '../textures';
+import { preloadSprites } from '../sprites';
+import { Art } from '../art/kit';
+import { PAL, Pix, pixImage, pixTexture } from '../pixel';
 import { completePages, discovered, legendOf, logbookBonus } from '../logbook';
 import { crateCapacity, cratesUsed, storeFish, unstoreFish, wantedFish } from '../crates';
 import { landmarkBonus, perkBonus } from '../perks';
@@ -105,7 +108,8 @@ export class FishingScene extends Phaser.Scene {
   private logbookButton!: Button;
   private atmosphere!: Atmosphere;
   /** Sun by day, moon by night (always a pale moon over the Trench). */
-  private skyBody!: Phaser.GameObjects.Graphics;
+  private sun!: Phaser.GameObjects.Image;
+  private moon!: Phaser.GameObjects.Image;
   private skyNight?: boolean;
   private todayText!: Phaser.GameObjects.Text;
   private lastStormCheck = 0;
@@ -148,6 +152,10 @@ export class FishingScene extends Phaser.Scene {
 
   constructor() {
     super('Fishing');
+  }
+
+  preload(): void {
+    preloadSprites(this);
   }
 
   create(): void {
@@ -195,7 +203,18 @@ export class FishingScene extends Phaser.Scene {
     // Sky
     g.fillStyle(area.sky);
     g.fillRect(0, 0, GAME_WIDTH, SURFACE_Y);
-    this.skyBody = this.add.graphics();
+    this.sun = pixImage(this, 'sun', 344, 34, 72, 72, (p) => {
+      p.fillStyle(PAL.amber).fillCircle(380, 70, 34);
+      p.fillStyle(PAL.yellow).fillCircle(380, 70, 30);
+      p.fillStyle(PAL.white).fillCircle(368, 58, 8);
+    });
+    this.moon = pixImage(this, 'moon', 356, 46, 48, 48, (p) => {
+      p.fillStyle(PAL.cloud).fillCircle(380, 70, 22);
+      p.fillStyle(PAL.white).fillCircle(376, 66, 17);
+      p.fillStyle(PAL.cloud).fillCircle(372, 64, 4).fillCircle(386, 76, 3);
+      p.outline(PAL.slate);
+    });
+    this.drawClouds();
     this.drawSkyBody();
 
     // Water: gradient through the zones
@@ -212,15 +231,18 @@ export class FishingScene extends Phaser.Scene {
     g.fillStyle(area.id === 'reef' ? 0xe9d8a6 : 0x2e2c29);
     g.fillRect(0, floorY, GAME_WIDTH, this.worldHeight - floorY);
     if (area.id === 'reef') {
-      const corals = [0xff6b6b, 0xf7a072, 0xc77dff, 0xff8fab, 0x80ed99];
+      const reef = new Pix(0, floorY - 90, GAME_WIDTH, 90);
+      const corals = [PAL.salmon, PAL.copper, PAL.magenta, PAL.pink, PAL.lime];
       for (let i = 0, x = 10; x < GAME_WIDTH; i++, x += 34) {
-        g.fillStyle(corals[i % corals.length]);
+        reef.fillStyle(corals[i % corals.length]);
         const hgt = 30 + ((i * 23) % 40);
-        g.fillRect(x + 8, floorY - hgt, 6, hgt);
-        g.fillCircle(x + 11, floorY - hgt, 9);
-        g.fillCircle(x + 2, floorY - hgt * 0.6, 6);
-        g.fillCircle(x + 20, floorY - hgt * 0.7, 7);
+        reef.fillRect(x + 8, floorY - hgt, 6, hgt);
+        reef.fillCircle(x + 11, floorY - hgt, 9);
+        reef.fillCircle(x + 2, floorY - hgt * 0.6, 6);
+        reef.fillCircle(x + 20, floorY - hgt * 0.7, 7);
       }
+      reef.outline();
+      reef.toImage(this, 'reef');
     }
 
     // Depth markers
@@ -235,49 +257,54 @@ export class FishingScene extends Phaser.Scene {
     }
 
     const deckY = SURFACE_Y - 34;
+    // Everything above the waterline (dock or boat, the fisher, the rod) as one pixel picture.
+    const view = new Pix(-10, 0, GAME_WIDTH + 20, SURFACE_Y + 60);
     if (area.id === 'harbor') {
       this.drawMooredBoats();
-      // Dock
-      g.fillStyle(0x5c3a1e);
-      for (const px of [18, 78, 138]) g.fillRect(px, deckY, 12, 70);
-      g.fillStyle(0x8b5a2b);
-      g.fillRect(0, deckY, 175, 14);
-      g.fillStyle(0x6e4522);
-      for (let x = 0; x < 175; x += 25) g.fillRect(x, deckY, 2, 14);
+      for (const px of [18, 78, 138]) {
+        view.fillStyle(PAL.brown).fillRect(px, deckY, 12, 70);
+        view.fillStyle(PAL.clay).fillRect(px, deckY, 2, 70);
+        view.fillStyle(PAL.bark).fillRect(px + 10, deckY, 2, 70).fillRect(px, SURFACE_Y + 6, 12, 2);
+      }
+      view.fillStyle(PAL.clay).fillRect(-4, deckY, 180, 14);
+      view.fillStyle(PAL.tan).fillRect(-4, deckY, 180, 4);
+      view.fillStyle(PAL.brown).fillRect(-4, deckY + 10, 180, 4);
+      for (let x = 22; x < 176; x += 24) view.fillRect(x, deckY, 2, 10);
+      view.fillStyle(PAL.bark);
+      for (let x = 10; x < 176; x += 24) view.fillRect(x, deckY + 6, 2, 2);
     } else {
       if (area.id === 'arctic') {
         // Floating ice on the surface
-        g.fillStyle(0xf1f8fc);
-        for (const [x, w] of [[300, 46], [372, 30], [418, 40]]) g.fillRect(x, SURFACE_Y - 6, w, 12);
+        view.fillStyle(PAL.white);
+        for (const [x, w] of [[300, 46], [372, 30], [418, 40]]) view.fillRect(x, SURFACE_Y - 6, w, 12);
+        view.fillStyle(PAL.cloud);
+        for (const [x, w] of [[300, 46], [372, 30], [418, 40]]) view.fillRect(x, SURFACE_Y + 2, w, 4);
       }
-      this.drawBoat(g, 0, SURFACE_Y, 1, area);
+      this.drawBoat(view, 0, SURFACE_Y, 1, area);
     }
-
-    // Fisher
-    g.fillStyle(0x2f4858);
-    g.fillRect(132, deckY - 30, 9, 30);
-    g.fillStyle(0xe0a030);
-    g.fillRect(128, deckY - 62, 20, 34);
-    g.fillStyle(0xf2c9a0);
-    g.fillCircle(138, deckY - 72, 10);
-    g.fillStyle(0xc0392b);
-    g.fillRect(126, deckY - 84, 24, 7);
-
-    // Rod
-    g.lineStyle(3, 0x4a2f1a);
-    g.lineBetween(146, deckY - 45, ROD_TIP.x, ROD_TIP.y);
+    drawFisher(new Art(view), 63, deckY / 2);
+    view.lineStyle(3, PAL.bark).lineBetween(146, deckY - 45, ROD_TIP.x, ROD_TIP.y);
+    view.outline();
+    view.toImage(this, `scenery-${area.id}`);
   }
 
   private drawSkyBody(): void {
     const night = isNight() || !!this.area.dark;
     if (night === this.skyNight) return;
     this.skyNight = night;
-    const g = this.skyBody.clear();
-    if (night) {
-      g.fillStyle(0xe9eef2).fillCircle(380, 70, 22);
-      g.fillStyle(0xc9d3dc).fillCircle(372, 64, 4).fillCircle(386, 78, 3);
-    } else {
-      g.fillStyle(0xfff1b8).fillCircle(380, 70, 34);
+    this.sun.setVisible(!night);
+    this.moon.setVisible(night);
+  }
+
+  /** A few pixel clouds drifting slowly across the sky. */
+  private drawClouds(): void {
+    const key = pixTexture(this, 'cloud', -40, -14, 80, 28, (p) => {
+      p.fillStyle(PAL.cloud).fillEllipse(0, 4, 76, 16);
+      p.fillStyle(PAL.white).fillEllipse(-12, -2, 36, 20).fillEllipse(12, -4, 40, 20).fillEllipse(0, 2, 70, 12);
+    }).key;
+    for (const [x, y, speed] of [[60, 60, 1], [250, 120, 0.7], [420, 30, 0.5]]) {
+      const cloud = this.add.image(x, y, key).setAlpha(0.9);
+      this.tweens.add({ targets: cloud, x: x + 60 * speed, duration: 20000, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     }
   }
 
@@ -285,7 +312,7 @@ export class FishingScene extends Phaser.Scene {
    * A boat with its deck `34 × s` px above the waterline, starting at `x`. Each area's boat
    * gets its own superstructure.
    */
-  private drawBoat(g: Phaser.GameObjects.Graphics, x: number, waterY: number, s: number, area: AreaDef): void {
+  private drawBoat(g: Pix, x: number, waterY: number, s: number, area: AreaDef): void {
     const P = (px: number, py: number) => new Phaser.Math.Vector2(x + px * s, waterY + py * s);
     const line = (a: Phaser.Math.Vector2, b: Phaser.Math.Vector2) => g.lineBetween(a.x, a.y, b.x, b.y);
     const tri = (a: Phaser.Math.Vector2, b: Phaser.Math.Vector2, c: Phaser.Math.Vector2) => g.fillTriangle(a.x, a.y, b.x, b.y, c.x, c.y);
@@ -345,9 +372,11 @@ export class FishingScene extends Phaser.Scene {
     const owned = AREAS.filter((a) => a.boat && ownsArea(a));
     owned.forEach((area, i) => {
       const x = MOORING_X[i];
-      const g = this.add.graphics().setDepth(1);
-      this.drawBoat(g, 0, 0, MOORED_SCALE, area);
-      g.setPosition(x, SURFACE_Y + 2);
+      const t = pixTexture(this, `moored-${area.id}`, -4, -42, 52, 48, (p) => {
+        this.drawBoat(p, 0, 0, MOORED_SCALE, area);
+        p.outline();
+      });
+      const g = this.add.image(x + t.x, SURFACE_Y + 2 + t.y, t.key).setOrigin(0).setDepth(1);
       this.tweens.add({ targets: g, y: g.y + 2, duration: 1100 + i * 170, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
       const w = 200 * MOORED_SCALE;
       const zone = this.add.zone(x + w / 2, SURFACE_Y - 18, w, 52);
@@ -1006,7 +1035,7 @@ export class FishingScene extends Phaser.Scene {
     this.depthText.setText(this.phase === 'idle' ? `Line ${this.stats.lineLength} m` : `${depth} / ${this.stats.lineLength} m`);
 
     if (this.phase === 'descending') {
-      this.hookText.setText(this.stats.shields > 0 ? `Lure: ${'●'.repeat(this.shieldsLeft)}${'○'.repeat(this.stats.shields - this.shieldsLeft)}` : '');
+      this.hookText.setText(this.stats.shields > 0 ? `Lure: ${this.shieldsLeft}/${this.stats.shields}` : '');
     } else if (this.phase === 'ascending') {
       const full = this.caught.length >= this.stats.capacity;
       this.hookText.setText(full ? 'Hook full!' : `Hook ${this.caught.length} / ${this.stats.capacity}`);
@@ -1092,4 +1121,17 @@ export class FishingScene extends Phaser.Scene {
       }),
     );
   }
+}
+
+/** The fisher on the dock in a yellow oilskin, art pixels: left edge x, feet on y. */
+function drawFisher(a: Art, x: number, feet: number): void {
+  const b = feet;
+  a.r(x + 3, b - 3, 4, 3, PAL.bark).r(x + 8, b - 3, 4, 3, PAL.bark);
+  a.r(x + 3, b - 15, 4, 12, PAL.navy).r(x + 8, b - 15, 4, 12, PAL.navy).vl(x + 3, b - 15, 12, PAL.slate);
+  a.r(x + 1, b - 31, 13, 17, PAL.amber).vl(x + 1, b - 31, 17, PAL.yellow).vl(x + 13, b - 31, 17, PAL.orange);
+  a.d(x + 7, b - 27, PAL.orange).d(x + 7, b - 23, PAL.orange).d(x + 7, b - 19, PAL.orange);
+  a.r(x + 12, b - 27, 6, 3, PAL.amber).hl(x + 12, b - 27, 6, PAL.yellow).r(x + 17, b - 27, 2, 3, PAL.skin);
+  a.r(x + 3, b - 39, 9, 8, PAL.skin).d(x + 9, b - 36, PAL.ink);
+  a.r(x + 3, b - 33, 9, 2, PAL.brown).d(x + 11, b - 34, PAL.brown);
+  a.r(x + 2, b - 42, 11, 4, PAL.red).hl(x + 2, b - 39, 11, PAL.crimson).d(x + 7, b - 43, PAL.white);
 }

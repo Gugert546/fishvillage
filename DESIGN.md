@@ -166,6 +166,33 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 - **Town projects** (Town Square → Board, paid in 10 parts): Weather Station (Lv 4, $50k, rain 60% more fish), Breakwater (Lv 5, $200k, boats sail in storms), Railway Station (Lv 6, $500k, +4h offline, move-ins +25%), Fish Auction (Lv 7, $1M, fish +10%), Trade Office (Lv 8, $2.5M, orders & ships +20%).
 - Cosmetics wait for the real art style. Storm damage was considered and dropped (feels unfair).
 
+## Art (pixel art)
+
+Pixel art in the style of a Nordic wharf town: steep gables, slate roofs, white-framed windows,
+stone footings, dark ink outlines. It's all drawn in code (`src/art/`), on a grid of 2x2 world px
+"art pixels", in the **Endesga 32** palette (lospec.com/palette-list/endesga-32). Use the same
+palette when drawing your own sprites so they fit in.
+
+- `src/pixel.ts`: the painter. Takes world coordinates like Phaser's Graphics, snaps everything to
+  art pixels and the palette, outlines shapes in ink, and turns the result into a texture.
+- `src/art/kit.ts`: building blocks (walls, gables, tiled roofs, windows, doors, awnings, signs).
+- `src/art/buildings.ts`, `decor.ts`, `ground.ts`, `people.ts`, `icons.ts`: the pictures.
+- Text uses the bundled Tiny5 font. It's drawn on an 8 px grid, so text is only sharp at 16, 24
+  or 32 px; `makeText` snaps every size to one of those. Tiny5 has no arrows, ticks or stars:
+  use `>`, `[x]`/`[ ]` and `*` instead.
+- The whole game renders with Phaser's `pixelArt` mode, so the canvas scales up without blur.
+
+**Your own sprites.** Drop a PNG into `assets/sprites/`, named after the building, decoration or
+tile id (`cottage.png`, `tree.png`, `road.png`), and the game uses it instead of the built-in
+art. In dev the page reloads by itself when a file is added.
+
+- Scale: 16x16 px per tile, shown at 2x, so a tile is 32 px in game.
+- Buildings and decorations sit bottom-left on their footprint, so roofs can poke up above it.
+- Sizes: 1x1 tile = 16x16; 2x2 = 32x32; 4x2 = 64x32; 4x4 = 64x64; 2x4 = 32x64 (plus roof height).
+  Villagers are 7x11.
+- Roads: one plain tile, stretched to fill each road tile (the built-in roads join up with curbs;
+  a custom road doesn't yet).
+
 ## Plans
 
 **Phase 1 — Boats & fishing areas** ✅ (see above). Balance after playtesting.

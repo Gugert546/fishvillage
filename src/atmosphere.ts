@@ -3,7 +3,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH, WORLD } from './config';
 import { sfx } from './sound';
-import { COLORS, UI_DEPTH, fixToScreen, makeText, onTap, showToast } from './ui';
+import { COLORS, UI_DEPTH, fixToScreen, makePanel, makeText, onTap, showToast } from './ui';
 import { projectDone } from './projects';
 import { stormBound } from './town';
 import { darkness, fishOfTheDay, isNight, minutesToDayChange, minutesToWeatherChange, weather, WEATHER_NAMES, type Weather } from './world';
@@ -47,7 +47,7 @@ export class Atmosphere {
 
     const bx = GAME_WIDTH - 76;
     const by = 68;
-    const bg = scene.add.rectangle(0, 0, 136, 28, 0x0b2545, 0.75).setStrokeStyle(1, 0xffffff, 0.3);
+    const bg = makePanel(scene, 0, 0, 136, 28, COLORS.panel, 0.85);
     this.badgeIcon = scene.add.graphics();
     this.badgeText = makeText(scene, -40, 0, '', 13).setOrigin(0, 0.5);
     const badge = fixToScreen(scene.add.container(bx, by, [bg, this.badgeIcon, this.badgeText])).setDepth(UI_DEPTH);

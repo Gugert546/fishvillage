@@ -6,18 +6,34 @@ import { discovered, legendOf, pageComplete, pageProgress, regularFish, speciesC
 import { housingCapacity } from './population';
 import { resetGame, save, state } from './state';
 import { setMusic, setSound, sfx } from './sound';
+import { coinTexture, faceTexture, gearTexture, personIconTexture } from './art/icons';
 
 export const UI_DEPTH = 100;
 
+/** The pixel font (bundled, see main.ts), with a fallback while it loads. */
+export const FONT = '"Tiny5", monospace';
+
+/**
+ * Tiny5 is drawn on an 8 px grid, so it's only crisp at multiples of 8. Every requested size is
+ * snapped to the nearest crisp one: 16 for body text, 24 for buttons and titles, 32 for big
+ * numbers. (8 would be crisp too, but is too small to read on a phone.)
+ */
+export function crispSize(size: number): number {
+  return size < 20 ? 16 : size < 28 ? 24 : 32;
+}
+
 export function makeText(scene: Phaser.Scene, x: number, y: number, text: string, size: number): Phaser.GameObjects.Text {
+  // Drawn at game resolution and scaled up with the same chunky pixels as the art; outline and
+  // drop shadow are whole font pixels so the edges stay sharp.
+  const px = crispSize(size);
+  const shadow = px / 8;
   return scene.add.text(x, y, text, {
-    fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-    fontSize: `${size}px`,
-    fontStyle: 'bold',
+    fontFamily: FONT,
+    fontSize: `${px}px`,
     color: '#ffffff',
-    stroke: '#000000',
-    strokeThickness: Math.max(2, Math.round(size / 7)),
-    resolution: Math.min(3, window.devicePixelRatio || 1) * 2,
+    stroke: '#181425',
+    strokeThickness: 2,
+    shadow: { offsetX: shadow, offsetY: shadow, color: '#181425', blur: 0, stroke: true, fill: true },
   });
 }
 
@@ -53,15 +69,46 @@ export function fixToScreen<T extends Phaser.GameObjects.GameObject>(obj: T): T 
   return obj;
 }
 
+/** UI colours, from the same Endesga 32 palette as the art (see pixel.ts). */
 export const COLORS = {
-  primary: 0xf5a623,
-  buy: 0x52b788,
-  disabled: 0x6c757d,
-  neutral: 0x457b9d,
-  danger: 0xc0392b,
-  panel: 0x1d3557,
-  gold: '#ffe066',
+  primary: 0xf77622,
+  buy: 0x3e8948,
+  disabled: 0x5a6988,
+  neutral: 0x124e89,
+  danger: 0xa22633,
+  panel: 0x262b44,
+  /** Cards and list rows inside a panel. */
+  card: 0x3a4466,
+  /** Empty part of a progress bar. */
+  track: 0x181425,
+  /** Progress bar fill, and when it's complete. */
+  progress: 0xfeae34,
+  complete: 0x63c74d,
+  ink: 0x181425,
+  gold: '#fee761',
 };
+
+/**
+ * A pixel-art frame centred on (0, 0): ink border with clipped corners, a light rim and a
+ * darker lip along the bottom. Draw it over a plain fill of the same size.
+ */
+export function drawBevel(g: Phaser.GameObjects.Graphics, w: number, h: number, lip = 4): Phaser.GameObjects.Graphics {
+  const x = -w / 2;
+  const y = -h / 2;
+  g.clear();
+  g.fillStyle(COLORS.ink);
+  g.fillRect(x + 2, y, w - 4, 2).fillRect(x + 2, y + h - 2, w - 4, 2).fillRect(x, y + 2, 2, h - 4).fillRect(x + w - 2, y + 2, 2, h - 4);
+  g.fillStyle(0xffffff, 0.3).fillRect(x + 2, y + 2, w - 4, 2);
+  if (lip > 0) g.fillStyle(0x000000, 0.28).fillRect(x + 2, y + h - 2 - lip, w - 4, lip);
+  return g;
+}
+
+/** A framed panel: fill plus bevel, centred on (x, y). */
+export function makePanel(scene: Phaser.Scene, x: number, y: number, w: number, h: number, fill: number, alpha = 1): Phaser.GameObjects.Container {
+  const bg = scene.add.rectangle(0, 0, w - 4, h - 4, fill, alpha);
+  const rim = drawBevel(scene.add.graphics(), w, h, 0);
+  return scene.add.container(x, y, [bg, rim]);
+}
 
 export interface Button extends Phaser.GameObjects.Container {
   setEnabledLook(enabled: boolean, color?: number): void;
@@ -79,23 +126,30 @@ export function makeButton(
   color = COLORS.primary,
   fontSize = 22,
 ): Button {
-  const bg = scene.add.rectangle(0, 0, w, h, color).setStrokeStyle(3, 0x000000, 0.25);
-  const text = makeText(scene, 0, 0, label, fontSize).setOrigin(0.5);
-  const c = scene.add.container(x, y, [bg, text]) as Button;
+  const bg = scene.add.rectangle(0, 0, w - 2, h - 2, color);
+  const bevel = drawBevel(scene.add.graphics(), w, h);
+  const text = makeText(scene, 0, -1, label, fontSize).setOrigin(0.5);
+  const c = scene.add.container(x, y, [bg, bevel, text]) as Button;
   // Only fire when the press started on this button, so a button that appears under a
   // finger mid-tap (e.g. in a freshly opened dialog) can't be triggered by the release.
   let pressed = false;
   bg.setInteractive({ useHandCursor: true });
+  // Pressed: the face drops onto its lip.
+  const press = (down: boolean) => {
+    bevel.setY(down ? 2 : 0);
+    text.setY(down ? 1 : -1);
+    bg.setY(down ? 2 : 0);
+  };
   bg.on('pointerdown', () => {
     pressed = true;
-    bg.setScale(0.95);
+    press(true);
   });
   bg.on('pointerout', () => {
     pressed = false;
-    bg.setScale(1);
+    press(false);
   });
   bg.on('pointerup', () => {
-    bg.setScale(1);
+    press(false);
     if (!pressed) return;
     pressed = false;
     sfx.tap();
@@ -115,11 +169,14 @@ export class Modal {
     private scene: Phaser.Scene,
     readonly height: number,
   ) {
-    const shade = scene.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.55).setOrigin(0).setInteractive();
-    const panel = scene.add
-      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH - 40, height, COLORS.panel)
-      .setStrokeStyle(3, 0xf1faee, 0.6);
-    this.container = fixToScreen(scene.add.container(0, 0, [shade, panel]).setDepth(UI_DEPTH + 10));
+    const shade = scene.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, COLORS.ink, 0.6).setOrigin(0).setInteractive();
+    const panel = makePanel(scene, GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH - 40, height, COLORS.panel);
+    // A second, lighter border inside the ink one, like an old RPG window.
+    const w = GAME_WIDTH - 44;
+    const h = height - 4;
+    const rim = scene.add.graphics().setPosition(GAME_WIDTH / 2 - w / 2, GAME_HEIGHT / 2 - h / 2);
+    rim.fillStyle(0x8b9bb4).fillRect(0, 0, w, 2).fillRect(0, h - 2, w, 2).fillRect(0, 0, 2, h).fillRect(w - 2, 0, 2, h);
+    this.container = fixToScreen(scene.add.container(0, 0, [shade, panel, rim]).setDepth(UI_DEPTH + 10));
     this.top = GAME_HEIGHT / 2 - height / 2;
   }
 
@@ -144,9 +201,9 @@ export class TopBar {
   private coins: Phaser.GameObjects.Text;
   private income: Phaser.GameObjects.Text;
   private population: Phaser.GameObjects.Text;
-  private personIcon: Phaser.GameObjects.Graphics;
+  private personIcon: Phaser.GameObjects.Image;
   private mood: Phaser.GameObjects.Text;
-  private face: Phaser.GameObjects.Graphics;
+  private face: Phaser.GameObjects.Image;
   private lastFace = '';
   private showPopulation: boolean;
   private gear?: Phaser.GameObjects.Container;
@@ -159,15 +216,13 @@ export class TopBar {
 
   constructor(scene: Phaser.Scene, showPopulation = true, onSettings?: () => void, onPopulation?: () => void) {
     this.rightEdge = onSettings ? GAME_WIDTH - 46 : GAME_WIDTH - 14;
-    this.personIcon = scene.add.graphics();
-    this.personIcon.fillStyle(0xf1faee);
-    this.personIcon.fillCircle(0, -6, 4.5);
-    this.personIcon.fillRoundedRect(-6, 0, 12, 10, 4);
-    this.face = scene.add.graphics();
+    this.personIcon = scene.add.image(0, 0, personIconTexture(scene));
+    this.face = scene.add.image(0, 0, faceTexture(scene, 'flat'));
     this.showPopulation = showPopulation;
     const items: (Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Depth)[] = [
-      scene.add.rectangle(0, 0, GAME_WIDTH, 44, 0x000000, 0.35).setOrigin(0),
-      scene.add.circle(22, 22, 10, 0xf5c542).setStrokeStyle(2, 0xb8860b),
+      scene.add.rectangle(0, 0, GAME_WIDTH, 44, COLORS.panel, 0.85).setOrigin(0),
+      scene.add.rectangle(0, 44, GAME_WIDTH, 2, COLORS.ink).setOrigin(0),
+      scene.add.image(22, 22, coinTexture(scene)),
       (this.coins = makeText(scene, 40, 22, '', 20).setOrigin(0, 0.5)),
       (this.income = makeText(scene, 0, 24, '', 14).setOrigin(0, 0.5).setColor(COLORS.gold)),
       this.personIcon,
@@ -183,6 +238,9 @@ export class TopBar {
       items.push(this.populationHit);
     }
     for (const o of items) fixToScreen(o).setDepth(UI_DEPTH);
+    // The bar itself sits just under its contents (some icons were created before it).
+    items[0].setDepth(UI_DEPTH - 0.5);
+    items[1].setDepth(UI_DEPTH - 0.5);
     for (const o of [this.personIcon, this.population, this.face, this.mood]) o.setVisible(showPopulation);
     this.update();
   }
@@ -193,7 +251,7 @@ export class TopBar {
     this.income.setX(this.coins.x + this.coins.width + 10);
     // Net of wages; a town of services can cost more than it earns.
     this.income.setText(perMin > 0 ? `+${formatRate(perMin)}/min` : perMin < 0 ? `−${formatRate(-perMin)}/min` : '');
-    this.income.setColor(perMin < 0 ? '#ff8a8a' : '#8ee88e');
+    this.income.setColor(perMin < 0 ? '#f6757a' : '#63c74d');
 
     if (!this.showPopulation) return;
     this.population.setText(`${state.residents.length}/${housingCapacity()}`);
@@ -218,22 +276,7 @@ export class TopBar {
     const kind = h === null ? 'flat' : h < 35 ? 'sad' : h < 65 ? 'flat' : 'happy';
     if (kind === this.lastFace) return;
     this.lastFace = kind;
-    const g = this.face.clear();
-    const color = kind === 'happy' ? 0x8ee88e : kind === 'sad' ? 0xff8a8a : 0xffe066;
-    g.fillStyle(color);
-    g.fillCircle(0, 0, 10);
-    g.fillStyle(0x1d3557);
-    g.fillCircle(-3.5, -3, 1.6);
-    g.fillCircle(3.5, -3, 1.6);
-    g.lineStyle(2, 0x1d3557);
-    g.beginPath();
-    if (kind === 'happy') g.arc(0, 1, 5, 0.15 * Math.PI, 0.85 * Math.PI, false);
-    else if (kind === 'sad') g.arc(0, 8, 5, 1.2 * Math.PI, 1.8 * Math.PI, false);
-    else {
-      g.moveTo(-4, 4);
-      g.lineTo(4, 4);
-    }
-    g.strokePath();
+    this.face.setTexture(faceTexture(this.face.scene, kind));
   }
 }
 
@@ -260,29 +303,21 @@ export function showOfflineEarnings(scene: Phaser.Scene, onClose: () => void): M
 }
 
 function makeGearButton(scene: Phaser.Scene, x: number, y: number, onClick: () => void): Phaser.GameObjects.Container {
-  const g = scene.add.graphics();
-  g.fillStyle(0xf1faee);
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    g.fillCircle(Math.cos(a) * 8, Math.sin(a) * 8, 2.8);
-  }
-  g.fillCircle(0, 0, 7.5);
-  g.fillStyle(0x3a3a3a);
-  g.fillCircle(0, 0, 3);
+  const g = scene.add.image(0, 0, gearTexture(scene));
   // Generous invisible hit area so it's easy to tap.
   const hit = scene.add.rectangle(0, 0, 42, 42, 0x000000, 0.001);
   let pressed = false;
   hit.setInteractive({ useHandCursor: true });
   hit.on('pointerdown', () => {
     pressed = true;
-    g.setScale(0.9);
+    g.setY(2);
   });
   hit.on('pointerout', () => {
     pressed = false;
-    g.setScale(1);
+    g.setY(0);
   });
   hit.on('pointerup', () => {
-    g.setScale(1);
+    g.setY(0);
     if (!pressed) return;
     pressed = false;
     onClick();
@@ -389,8 +424,8 @@ export function makeListRow(
   highlight = false,
 ): Phaser.GameObjects.Container {
   const w = GAME_WIDTH - 64;
-  const bg = scene.add.rectangle(GAME_WIDTH / 2, y, w, h - 6, 0x264b73, onClick ? 1 : 0.45);
-  if (highlight) bg.setStrokeStyle(2, 0x8ee88e);
+  const bg = scene.add.rectangle(GAME_WIDTH / 2, y, w, h - 6, COLORS.card, onClick ? 1 : 0.45);
+  bg.setStrokeStyle(2, highlight ? COLORS.complete : COLORS.ink);
   if (onClick) onTap(bg, onClick);
   return scene.add.container(0, 0, [bg]);
 }
@@ -403,9 +438,7 @@ export function showToast(scene: Phaser.Scene, text: string): void {
   const live = (liveToasts.get(scene) ?? []).filter((t) => t.active);
   const y = 74 + live.length * 46;
   const label = makeText(scene, 0, 0, text, 16).setOrigin(0.5);
-  const bg = scene.add
-    .rectangle(0, 0, Math.min(GAME_WIDTH - 30, label.width + 36), 38, 0x2d6a4f)
-    .setStrokeStyle(2, 0x8ee88e);
+  const bg = makePanel(scene, 0, 0, Math.min(GAME_WIDTH - 30, label.width + 36), 38, 0x265c42);
   const toast = fixToScreen(scene.add.container(GAME_WIDTH / 2, y - 30, [bg, label]).setDepth(UI_DEPTH + 20).setAlpha(0));
   liveToasts.set(scene, [...live, toast]);
   scene.tweens.add({ targets: toast, y, alpha: 1, duration: 250, ease: 'Back.Out' });
