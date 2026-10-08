@@ -411,6 +411,7 @@ export type BuildingId =
   | 'lampPost'
   | 'fountain'
   | 'aquarium'
+  | 'icehouse'
   | 'trophyOldBarnacle'
   | 'trophySilverKing'
   | 'trophyCoralEmperor'
@@ -472,6 +473,8 @@ export interface BuildingDef {
   speciesIncomePerWorker?: (level: number) => number;
   /** Trophy decor: only buildable once this (legendary) fish has been caught. */
   trophy?: string;
+  /** Icehouse: fish it can keep at a given level. */
+  crateCapacity?: (level: number) => number;
 }
 
 /** One extra job slot every second level: 1, 1, 2, 2, 3… */
@@ -866,6 +869,25 @@ BUILDINGS.push(
 );
 
 BUILDINGS.push({
+  id: 'icehouse',
+  name: 'Icehouse',
+  description: 'Keeps fish on ice for orders and upgrades.',
+  category: 'work',
+  menuTab: 'services',
+  w: 2,
+  h: 2,
+  wall: 0xe9f5fb,
+  roof: 0x8ecae6,
+  baseCost: 800,
+  costGrowth: 1,
+  maxCount: 1,
+  maxLevel: 3,
+  unlockLevel: 3,
+  upgradeCost: (l) => Math.round(2_000 * Math.pow(2.5, l - 1)),
+  crateCapacity: (l) => [0, 40, 90, 160][l] ?? 160,
+});
+
+BUILDINGS.push({
   id: 'aquarium',
   name: 'Aquarium',
   description: 'Visitors pay to see every species in your logbook.',
@@ -883,6 +905,30 @@ BUILDINGS.push({
   jobs: (l) => 1 + l,
   speciesIncomePerWorker: (l) => 0.5 * Math.pow(1.25, l - 1),
 });
+
+// ------------------------------------------------------------------- Orders
+// Staffed shops ask for fish from the Icehouse. Each delivery makes that building earn more, for good.
+
+export const ORDERS = {
+  /** Town level that starts orders (same as the Icehouse). */
+  unlockLevel: 3,
+  /** Orders open at once. */
+  max: 3,
+  /** Seconds between new orders. */
+  everySeconds: 300,
+  /** Income boost per delivery for the building that ordered, and its cap. */
+  boostPerDelivery: 0.05,
+  maxBoost: 0.5,
+  /** Coins paid on delivery, as a multiple of the fish's sale value. */
+  payMultiplier: 1.5,
+};
+
+/**
+ * Upgrading a building to Lv 3 (or more) also takes fish from the Icehouse. Which fish depends on
+ * the town level that unlocks the building, so later buildings ask for rarer fish.
+ */
+export const UPGRADE_FISH: Record<number, string> = { 1: 'cod', 2: 'cod', 3: 'salmon', 4: 'salmon', 5: 'tuna', 6: 'angler' };
+export const upgradeFishAmount = (toLevel: number) => 4 + 4 * (toLevel - 2);
 
 // ------------------------------------------------------------------- Quests
 
@@ -906,6 +952,14 @@ export interface TownLevel {
   cost: number;
   /** Residents the town needs before upgrading to this level. */
   residents: number;
+  /** Fish from the Icehouse the upgrade also needs. */
+  fish?: FishNeed;
+}
+
+/** Some fish of one kind, e.g. 10 Salmon. */
+export interface FishNeed {
+  fish: string;
+  amount: number;
 }
 
 /** Index = level; index 0 is unused so TOWN_LEVELS[level] reads naturally. */
@@ -914,9 +968,9 @@ export const TOWN_LEVELS: TownLevel[] = [
   { cost: 0, residents: 0 },
   { cost: 300, residents: 2 },
   { cost: 1_500, residents: 6 },
-  { cost: 6_000, residents: 12 },
-  { cost: 20_000, residents: 24 },
-  { cost: 60_000, residents: 40 },
+  { cost: 6_000, residents: 12, fish: { fish: 'salmon', amount: 10 } },
+  { cost: 20_000, residents: 24, fish: { fish: 'tuna', amount: 8 } },
+  { cost: 60_000, residents: 40, fish: { fish: 'angler', amount: 5 } },
 ];
 export const MAX_TOWN_LEVEL = TOWN_LEVELS.length - 1;
 

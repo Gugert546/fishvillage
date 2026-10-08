@@ -24,6 +24,7 @@ import { assignJobs, evictFrom, housingOf, jobSlots, shopOpen, tickPopulation, t
 import { questEvent } from './quests';
 import { isWorking, touchesWater, wateredTiles } from './water';
 import { discovered } from './logbook';
+import { fishName, hasFish, payUpgradeFish, upgradeNeed } from './crates';
 import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
 
 export function townRows(): number {
@@ -114,6 +115,9 @@ export function upgradeBuilding(b: PlacedBuilding): boolean {
   const cost = def.upgradeCost(b.level);
   if (b.level >= levelCap(b) || state.coins < cost) return false;
   if (b.type === 'playerHouse' && houseUpgradeBlockers().length > 0) return false;
+  const need = upgradeNeed(b);
+  if (need && !hasFish(need)) return false;
+  payUpgradeFish(b);
   state.coins -= cost;
   b.spent = totalSpent(b) + cost;
   b.level++;
@@ -262,6 +266,7 @@ export function houseUpgradeBlockers(): string[] {
   if (!next) return [];
   const blockers: string[] = [];
   if (state.residents.length < next.residents) blockers.push(`${next.residents} residents`);
+  if (next.fish && !hasFish(next.fish)) blockers.push(`${next.fish.amount} ${fishName(next.fish.fish)} on ice`);
   return blockers;
 }
 

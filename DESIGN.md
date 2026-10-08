@@ -136,6 +136,12 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 - **Trophies**: catching a legendary unlocks its Trophy decor (2×2, $1k, +12 mood within 4 tiles, one each).
 - **Aquarium** (Lv 3, 4×2, 2–4 jobs): $0.5/min per worker for every species in the logbook (+25% per level).
 
+## Fish crates, orders & fish for upgrades
+
+- **Icehouse** (Lv 3, 2×2, no workers): holds 40 / 90 / 160 fish. On the catch screen each fish has a **Sell / On ice** toggle; fish that open orders (or the next house level) still need start out on ice. The Icehouse panel lists what's on ice and can sell it all at plain value.
+- **Orders** (Lv 3, on the Quests board's Orders tab): every 5 min a staffed earning workplace may ask for fish ("Fish Stand wants 8 Cod"), up to 3 at once. Delivering pays 1.5× the fish's value **and** gives that building **+5% income for good** (up to +50%). Orders can be dropped.
+- **Fish for upgrades**: upgrading any building to Lv 3 also takes fish from the Icehouse (8 of Cod / Salmon / Tuna / Anglerfish, rarer for later buildings), and house levels 4 / 5 / 6 need 10 Salmon / 8 Tuna / 5 Anglerfish.
+
 ## Plans
 
 **Phase 1 — Boats & fishing areas** ✅ (see above). Balance after playtesting.
@@ -143,7 +149,7 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 **Phase 2 — Fishing gives what the town can't**
 - ~~Fish logbook / Aquarium~~ ✅
 - ~~One legendary fish per area, shown as a trophy in town~~ ✅
-- Fish as materials: late buildings/upgrades also need specific fish ("10 Tuna").
+- ~~Fish as materials: Icehouse crates, orders, fish for upgrades~~ ✅
 
 **Phase 3 — Long-term goals & money sinks** (no prestige / resets)
 - Town levels 7–10 with new buildings (Cannery, Export Docks: fish → goods → trade ships).

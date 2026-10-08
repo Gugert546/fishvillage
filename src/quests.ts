@@ -144,7 +144,12 @@ export function questProgress(q: Quest): number {
 
 let toasts: string[] = [];
 
-/** "Quest complete" messages waiting to be shown. */
+/** Adds a message for the next scene update to show (quests, orders…). */
+export function queueToast(message: string): void {
+  toasts.push(message);
+}
+
+/** "Quest complete" (and other) messages waiting to be shown. */
 export function takeQuestToasts(): string[] {
   const out = toasts;
   toasts = [];

@@ -16,6 +16,18 @@ export interface PlacedBuilding {
   staff?: number;
   /** Workplaces: filled before other workplaces. */
   priority?: boolean;
+  /** Orders this building has received; each one raises its income for good. */
+  deliveries?: number;
+}
+
+/** A building asking for fish from the Icehouse. */
+export interface Order {
+  id: number;
+  /** Building id that ordered. */
+  building: number;
+  fish: string;
+  amount: number;
+  coins: number;
 }
 
 export interface Resident {
@@ -65,6 +77,12 @@ export interface GameState {
   selectedBait: BaitId | null;
   quests: Quest[];
   nextQuestId: number;
+  /** Fish kept on ice, per fish id. */
+  crates: Record<string, number>;
+  orders: Order[];
+  nextOrderId: number;
+  /** Seconds accumulated toward the next order. */
+  orderTimer: number;
   /** Fishing areas you own a boat for (the Harbor needs none). */
   boats: AreaId[];
   /** Where you fish right now. */
@@ -89,6 +107,10 @@ function freshState(): GameState {
     selectedBait: null,
     quests: [],
     nextQuestId: 1,
+    crates: {},
+    orders: [],
+    nextOrderId: 1,
+    orderTimer: 0,
     boats: [],
     area: 'harbor',
     buildings: [],

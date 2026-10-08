@@ -2,6 +2,7 @@
 // app is backgrounded or closed (up to the offline cap, which Warehouses raise).
 
 import { moveInMultiplier, totalIncome, townHappiness } from './happiness';
+import { tickOrders } from './crates';
 import { tickPopulation } from './population';
 import { checkQuests } from './quests';
 import { offlineCapHours } from './services';
@@ -35,6 +36,7 @@ export function tickEconomy(): void {
   state.coins += earned;
   // Happier towns attract newcomers faster.
   const arrived = tickPopulation(effective * moveInMultiplier(townHappiness() ?? 50));
+  tickOrders(effective);
 
   if (gapS > AWAY_THRESHOLD_S) {
     pendingOffline.coins += earned;

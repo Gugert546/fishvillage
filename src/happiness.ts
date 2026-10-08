@@ -1,6 +1,7 @@
 // Happiness: how residents feel about where they live, and what that does for the town.
 
 import { HAPPINESS } from './config';
+import { deliveryBoost } from './crates';
 import { speciesCount } from './logbook';
 import { defOf, tileGap, workerCounts } from './population';
 import { millBoost, tavernMood } from './services';
@@ -132,6 +133,7 @@ export function workplaceIncome(
   }
   if (b.type === 'fishStand') total *= 1 + fillets;
   total *= 1 + millBoost(b, undefined, wet);
+  total *= 1 + deliveryBoost(b);
   return total * (touchesRoad(b, roads) ? 1 + HAPPINESS.roadIncomeBonus : 1);
 }
 
