@@ -991,6 +991,30 @@ BUILDINGS.push({
   speciesIncomePerWorker: (l) => 0.5 * Math.pow(1.25, l - 1),
 });
 
+// --------------------------------------------------------------- Day, night & weather
+
+export const WORLD = {
+  /** Real minutes in one full day/night cycle. */
+  dayMinutes: 24,
+  /** Points in the cycle (0..1): evening starts, full night, dawn begins. */
+  duskStart: 0.62,
+  nightStart: 0.7,
+  dawnStart: 0.92,
+  /** Real minutes each spell of weather lasts. */
+  weatherMinutes: 10,
+  weatherChances: { clear: 0.5, cloudy: 0.25, rain: 0.18, storm: 0.07 },
+  /** Rain: this many times as many fish bite. */
+  rainFish: 1.3,
+  /** Storm: boats stay in port, but fresh fish are scarce and sell for more. */
+  stormPrice: 0.25,
+  /** Night: fish worth at least this much come out more (weight ×), legendaries a bit more. */
+  nightRareValue: 25,
+  nightRareWeight: 1.5,
+  nightLegendaryChance: 0.05,
+  /** Fish of the day sells for this much more. */
+  fishOfTheDayBonus: 0.5,
+};
+
 // --------------------------------------------------------------- Canning & trade
 
 export const TRADE = {

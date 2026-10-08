@@ -6,6 +6,7 @@ import { housingCapacity } from './population';
 import { hookBonus } from './services';
 import { fishingStats, save, state, type Quest, type QuestKind } from './state';
 import { baitUnlocked, isUnlocked, levelCap, ownsArea, townLevel } from './town';
+import { dayKey, fishOfTheDay } from './world';
 
 type Draft = Omit<Quest, 'id' | 'progress' | 'done' | 'reward'> & { coins: number };
 
@@ -113,11 +114,33 @@ function newQuest(avoid?: QuestKind): Quest | undefined {
   return undefined;
 }
 
+/** Posts today's daily quest (catch some of the fish of the day), replacing yesterday's. */
+function ensureDaily(): boolean {
+  const today = dayKey();
+  if (state.dailyDate === today) return false;
+  state.dailyDate = today;
+  state.quests = state.quests.filter((q) => !q.daily);
+  const fish = fishOfTheDay();
+  const amount = Math.ceil(fishAsk(fish) * 1.5);
+  const bait = [...BAITS].reverse().find(baitUnlocked);
+  state.quests.unshift({
+    id: state.nextQuestId++,
+    kind: 'catchFish',
+    target: fish.id,
+    amount,
+    progress: 0,
+    done: false,
+    daily: true,
+    reward: { coins: roundTo(fish.value * amount * 6 + 150 * townLevel(), 5), bait: bait && { id: bait.id, count: 5 } },
+  });
+  return true;
+}
+
 /** Tops the board up to the active count once quests are unlocked. */
 export function ensureQuests(avoid?: QuestKind): void {
   if (!questsUnlocked()) return;
-  let added = false;
-  while (state.quests.length < QUESTS.active) {
+  let added = ensureDaily();
+  while (state.quests.filter((q) => !q.daily).length < QUESTS.active) {
     const q = newQuest(avoid);
     if (!q) break;
     state.quests.push(q);
@@ -202,7 +225,7 @@ export function claimQuest(q: Quest): boolean {
 
 /** Throws a quest away for a new one, for a small fee. */
 export function swapQuest(q: Quest): boolean {
-  if (q.done || state.coins < swapCost()) return false;
+  if (q.done || q.daily || state.coins < swapCost()) return false;
   state.coins -= swapCost();
   const i = state.quests.indexOf(q);
   state.quests.splice(i, 1);
@@ -218,7 +241,7 @@ export function describeQuest(q: Quest): string {
   const building = q.target ? BUILDING_BY_ID[q.target as BuildingId]?.name : '';
   switch (q.kind) {
     case 'catchFish':
-      return `Catch ${q.amount} ${fish}`;
+      return `${q.daily ? 'Daily: ' : ''}Catch ${q.amount} ${fish}`;
     case 'fillHook':
       return `Catch ${q.amount} fish in one cast`;
     case 'earnFishing':

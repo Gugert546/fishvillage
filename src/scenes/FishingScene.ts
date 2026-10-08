@@ -10,6 +10,7 @@ import {
   HOOK_RADIUS,
   HOOK_STEER_SPEED,
   HAZARD_INFO,
+  WORLD,
   LEGENDARY,
   LOGBOOK_PAGE_BONUS,
   PX_PER_M,
@@ -30,6 +31,9 @@ import { makeDarknessTexture, makeTextures } from '../textures';
 import { completePages, discovered, legendOf, logbookBonus } from '../logbook';
 import { crateCapacity, cratesUsed, storeFish, unstoreFish, wantedFish } from '../crates';
 import { landmarkBonus, perkBonus } from '../perks';
+import { Atmosphere } from '../atmosphere';
+import { sfx } from '../sound';
+import { fishOfTheDay, isNight, weather } from '../world';
 import {
   COLORS,
   Modal,
@@ -95,6 +99,12 @@ export class FishingScene extends Phaser.Scene {
   private darkness?: Phaser.GameObjects.Image;
   private areaButton!: Button;
   private logbookButton!: Button;
+  private atmosphere!: Atmosphere;
+  /** Sun by day, moon by night (always a pale moon over the Trench). */
+  private skyBody!: Phaser.GameObjects.Graphics;
+  private skyNight?: boolean;
+  private todayText!: Phaser.GameObjects.Text;
+  private lastStormCheck = 0;
   /** Gold shimmer around legendary fish (drawn above the dark). */
   private glowGfx!: Phaser.GameObjects.Graphics;
   /** Tap areas on the moored boats (only while on the dock). */
@@ -139,6 +149,8 @@ export class FishingScene extends Phaser.Scene {
     this.caught = [];
     this.hazards = [];
     this.boatZones = [];
+    this.lastStormCheck = 0;
+    this.skyNight = undefined;
     this.modal = undefined;
     this.sonarTags = [];
     this.darkness = undefined;
@@ -161,6 +173,7 @@ export class FishingScene extends Phaser.Scene {
 
     this.cameras.main.setBounds(0, 0, GAME_WIDTH, this.worldHeight);
     this.createHud();
+    this.atmosphere = new Atmosphere(this);
     this.setupInput();
     this.resetToDock();
   }
@@ -175,8 +188,8 @@ export class FishingScene extends Phaser.Scene {
     // Sky
     g.fillStyle(area.sky);
     g.fillRect(0, 0, GAME_WIDTH, SURFACE_Y);
-    g.fillStyle(area.dark ? 0xe9eef2 : 0xfff1b8);
-    g.fillCircle(380, 70, area.dark ? 22 : 34);
+    this.skyBody = this.add.graphics();
+    this.drawSkyBody();
 
     // Water: gradient through the zones
     const band = 8;
@@ -246,6 +259,19 @@ export class FishingScene extends Phaser.Scene {
     // Rod
     g.lineStyle(3, 0x4a2f1a);
     g.lineBetween(146, deckY - 45, ROD_TIP.x, ROD_TIP.y);
+  }
+
+  private drawSkyBody(): void {
+    const night = isNight() || !!this.area.dark;
+    if (night === this.skyNight) return;
+    this.skyNight = night;
+    const g = this.skyBody.clear();
+    if (night) {
+      g.fillStyle(0xe9eef2).fillCircle(380, 70, 22);
+      g.fillStyle(0xc9d3dc).fillCircle(372, 64, 4).fillCircle(386, 78, 3);
+    } else {
+      g.fillStyle(0xfff1b8).fillCircle(380, 70, 34);
+    }
   }
 
   /**
@@ -327,6 +353,10 @@ export class FishingScene extends Phaser.Scene {
 
   private sail(area: AreaDef): void {
     if (area.id === this.area.id) return;
+    if (weather() === 'storm' && area.id !== 'harbor') {
+      showToast(this, 'Storm! The boats stay in port');
+      return;
+    }
     sailTo(area);
     this.cameras.main.fadeOut(250, 0, 0, 0);
     this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart());
@@ -353,6 +383,7 @@ export class FishingScene extends Phaser.Scene {
     this.hookText = hud(makeText(this, GAME_WIDTH / 2, 70, '', 18).setOrigin(0.5));
     this.promptText = hud(makeText(this, GAME_WIDTH / 2, SURFACE_Y + 130, 'Tap to cast', 30).setOrigin(0.5));
     this.tweens.add({ targets: this.promptText, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
+    this.todayText = hud(makeText(this, GAME_WIDTH / 2, SURFACE_Y + 172, '', 15).setOrigin(0.5).setColor(COLORS.gold));
 
     this.townButton = hud(
       makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 60, 200, 52, 'Town', () => this.scene.start('Town'), COLORS.neutral),
@@ -396,15 +427,16 @@ export class FishingScene extends Phaser.Scene {
         .setOrigin(0, 0)
         .setAlpha(0.75)
         .setWordWrapWidth(GAME_WIDTH - 180);
-      let label = here ? 'Here' : 'Sail';
+      const storm = weather() === 'storm' && area.id !== 'harbor';
+      let label = here ? 'Here' : storm ? 'Storm' : 'Sail';
       if (!owned) label = boatUnlocked(area) ? `$${formatCoins(area.cost)}` : `Lv ${area.unlockLevel}`;
       const btn = makeButton(this, GAME_WIDTH - 80, y - 4, 100, 44, label, () => {
-        if (owned && !here) {
+        if (owned && !here && !storm) {
           close();
           this.sail(area);
         }
       }, COLORS.primary, 17);
-      btn.setEnabledLook(owned && !here, COLORS.primary);
+      btn.setEnabledLook(owned && !here && !storm, COLORS.primary);
       m.add(btn);
       if (!owned) m.text(GAME_WIDTH - 80, y + 26, boatUnlocked(area) ? 'at Boatyard' : 'town level', 11).setAlpha(0.6);
       y += rowH;
@@ -503,6 +535,7 @@ export class FishingScene extends Phaser.Scene {
 
     this.promptText.setVisible(true);
     this.townButton.setVisible(true);
+    this.todayText.setText(`Fish of the day: ${fishOfTheDay().name} +${WORLD.fishOfTheDayBonus * 100}%`).setVisible(true);
     this.topBar.setSettingsVisible(true);
     this.hookText.setText('');
     this.refreshHud();
@@ -519,6 +552,8 @@ export class FishingScene extends Phaser.Scene {
     this.invulnerableUntil = 0;
     this.promptText.setVisible(false);
     this.townButton.setVisible(false);
+    this.todayText.setVisible(false);
+    sfx.cast();
     this.topBar.setSettingsVisible(false);
   }
 
@@ -553,8 +588,10 @@ export class FishingScene extends Phaser.Scene {
     questEvent({ type: 'cast', fish: this.caught.map((f) => f.type.id), coins: total });
     save();
     this.refreshHud();
+    if (total > 0) sfx.coins();
     for (const t of fresh) {
       if (t.legendary) {
+        sfx.fanfare();
         showToast(this, `Legendary catch: ${t.name}!`);
         showToast(this, 'A trophy is ready to build in town');
       } else showToast(this, `New in the logbook: ${t.name}`);
@@ -571,6 +608,11 @@ export class FishingScene extends Phaser.Scene {
     return FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1);
   }
 
+  /** Storms make fresh fish scarce. */
+  private stormPrice(): number {
+    return weather() === 'storm' ? WORLD.stormPrice : 0;
+  }
+
   /** Sharp Hooks perk and the Fisher Statue. */
   private perkPrice(): number {
     return perkBonus('sharpHooks') + landmarkBonus('fishPrice');
@@ -578,14 +620,15 @@ export class FishingScene extends Phaser.Scene {
 
   /** Sale price including your house's level bonus, the Fish Market and this cast's bait. */
   private priceOf(type: FishType): number {
-    const bonus = this.houseBonus() + this.market + this.perkPrice() + logbookBonus(type.area) + (this.activeBait?.sellBonus ?? 0);
+    const today = type.id === fishOfTheDay().id ? WORLD.fishOfTheDayBonus : 0;
+    const bonus = this.houseBonus() + this.market + this.perkPrice() + this.stormPrice() + today + logbookBonus(type.area) + (this.activeBait?.sellBonus ?? 0);
     return Math.round(type.value * (1 + bonus));
   }
 
   private spawnFish(): void {
     // The bait you're about to use is already in the water, luring fish.
     const bait = readyBait();
-    const density = this.area.density * (bait?.density ?? 1);
+    const density = this.area.density * (bait?.density ?? 1) * (weather() === 'rain' ? WORLD.rainFish : 1);
     for (let seg = 0; seg < this.area.depth; seg += 10) {
       const n = Math.floor(density + Math.random());
       for (let i = 0; i < n; i++) {
@@ -606,7 +649,7 @@ export class FishingScene extends Phaser.Scene {
   /** Now and then the area's legendary fish is down there, if the line can reach it. */
   private maybeSpawnLegend(): void {
     const type = legendOf(this.area.id);
-    const chance = LEGENDARY.chance + perkBonus('luckyCharm') + landmarkBonus('legendaryChance');
+    const chance = LEGENDARY.chance + perkBonus('luckyCharm') + landmarkBonus('legendaryChance') + (isNight() ? WORLD.nightLegendaryChance : 0);
     if (!type || Math.random() >= chance || type.minDepth > this.stats.lineLength) return;
     const depth = Phaser.Math.Between(type.minDepth, Math.min(type.maxDepth, this.stats.lineLength - 5));
     const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
@@ -619,7 +662,9 @@ export class FishingScene extends Phaser.Scene {
 
   private pickFishType(depth: number, bait?: BaitDef): FishType | undefined {
     const options = FISH.filter((f) => f.area === this.area.id && !f.legendary && depth >= f.minDepth && depth <= f.maxDepth);
-    const weight = (f: FishType) => f.weight * (bait?.attract[f.id] ?? 1);
+    // Pricier fish come out at night.
+    const night = isNight() ? WORLD.nightRareWeight : 1;
+    const weight = (f: FishType) => f.weight * (bait?.attract[f.id] ?? 1) * (f.value >= WORLD.nightRareValue ? night : 1);
     let roll = Math.random() * options.reduce((sum, f) => sum + weight(f), 0);
     for (const f of options) {
       roll -= weight(f);
@@ -664,6 +709,7 @@ export class FishingScene extends Phaser.Scene {
       this.stunnedUntil = time + STING_SECONDS * 1000;
       this.cameras.main.shake(100, 0.005);
       this.popText('Stung!', '#e7b6f7');
+      sfx.sting();
       return false;
     }
     if (this.phase === 'ascending') {
@@ -674,6 +720,7 @@ export class FishingScene extends Phaser.Scene {
       h.vx = -h.vx * 1.4;
       this.cameras.main.shake(120, 0.006);
       this.popText(`Shark! −${lost.type.name}`, '#ff8a8a');
+      sfx.bump();
       return false;
     }
     // Lucky Lure dodges a shark, but there's no dodging solid ice.
@@ -687,6 +734,7 @@ export class FishingScene extends Phaser.Scene {
     h.calmUntil = time + 1500;
     this.cameras.main.shake(120, 0.006);
     this.popText(h.kind === 'ice' ? 'Ice!' : 'Shark!', '#ffffff');
+    sfx.bump();
     return true;
   }
 
@@ -743,6 +791,7 @@ export class FishingScene extends Phaser.Scene {
     this.caught.push(f);
     f.sprite.setDepth(9).setAngle(-90).setFlipX(false);
 
+    sfx.catch(f.type.value);
     const pop = makeText(this, this.hookX, this.hookY - 20, `+$${this.priceOf(f.type)}`, 18).setOrigin(0.5).setDepth(20);
     pop.setColor('#ffe066');
     this.tweens.add({ targets: pop, y: pop.y - 50, alpha: 0, duration: 800, onComplete: () => pop.destroy() });
@@ -754,8 +803,20 @@ export class FishingScene extends Phaser.Scene {
     const dt = Math.min(deltaMs / 1000, 0.05);
     const t = time / 1000;
     tickEconomy();
+    this.atmosphere.update(dt, time);
     for (const t of takeQuestToasts()) showToast(this, t);
     if (this.phase === 'idle' && !this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined));
+    // A storm blowing in sends the boat home (between casts).
+    if (this.phase === 'idle' && !this.modal && time - this.lastStormCheck > 1000) {
+      this.lastStormCheck = time;
+      this.drawSkyBody();
+      if (currentArea().id !== this.area.id) {
+        showToast(this, 'A storm! Your boat heads back to the harbor');
+        this.cameras.main.fadeOut(400, 0, 0, 0);
+        this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart());
+        this.lastStormCheck = Infinity;
+      }
+    }
     this.updateFish(dt, t);
     this.updateHazards(dt, t);
 
@@ -776,6 +837,7 @@ export class FishingScene extends Phaser.Scene {
           this.invulnerableUntil = time + 700;
           hit.vx = -hit.vx * 1.5;
           this.cameras.main.shake(80, 0.004);
+          sfx.bump();
         } else {
           this.catchFish(hit);
           this.cameras.main.shake(120, 0.006);
@@ -936,6 +998,7 @@ export class FishingScene extends Phaser.Scene {
     if (this.houseBonus() > 0) bonuses.push(`house +${Math.round(this.houseBonus() * 100)}%`);
     if (this.market > 0) bonuses.push(`market +${Math.round(this.market * 100)}%`);
     if (this.perkPrice() > 0) bonuses.push(`perks +${Math.round(this.perkPrice() * 100)}%`);
+    if (this.stormPrice() > 0) bonuses.push(`storm +${Math.round(this.stormPrice() * 100)}%`);
     const logbook = logbookBonus(this.area.id);
     if (logbook > 0) bonuses.push(`logbook +${Math.round(logbook * 100)}%`);
     if (this.activeBait) bonuses.push(`${this.activeBait.name.toLowerCase()} +${Math.round(this.activeBait.sellBonus * 100)}%`);
@@ -965,6 +1028,7 @@ export class FishingScene extends Phaser.Scene {
       const img = this.add.image(56, y, `fish-${type.id}`);
       m.add(img.setScale(Math.min(0.8, 52 / img.width)));
       if (fresh.has(type)) m.text(56, y + 14, 'NEW', 11).setColor('#8ee88e');
+      else if (type.id === fishOfTheDay().id) m.text(56, y + 14, 'TODAY', 11).setColor(COLORS.gold);
       const name = m.text(92, y, `${type.name} ×${n}`, 16, 0);
       if (type.legendary) name.setColor(COLORS.gold);
       m.text(GAME_WIDTH - 44, y, k === n ? 'on ice' : `$${this.priceOf(type) * (n - k)}`, 16, 1).setAlpha(k === n ? 0.7 : 1);

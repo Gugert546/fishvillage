@@ -24,6 +24,7 @@ import { assignJobs, evictFrom, housingOf, jobSlots, shopOpen, tickPopulation, t
 import { questEvent } from './quests';
 import { isWorking, touchesWater, wateredTiles } from './water';
 import { discovered } from './logbook';
+import { weather } from './world';
 import { fishName, hasFish, payUpgradeFish, upgradeNeed } from './crates';
 import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
 
@@ -335,6 +336,8 @@ export function ownsArea(area: AreaDef): boolean {
 
 /** Where the next cast happens: the chosen area if you own its boat, else the Harbor. */
 export function currentArea(): AreaDef {
+  // Storms keep every boat in port.
+  if (weather() === 'storm') return AREA_BY_ID.harbor;
   const area = AREA_BY_ID[state.area];
   return area && ownsArea(area) ? area : AREA_BY_ID.harbor;
 }

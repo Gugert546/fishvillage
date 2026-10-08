@@ -62,6 +62,8 @@ export interface Quest {
   progress: number;
   reward: { coins: number; bait?: { id: BaitId; count: number } };
   done: boolean;
+  /** Today's special quest: bigger reward, can't be swapped, replaced at midnight. */
+  daily?: boolean;
 }
 
 export interface GameState {
@@ -96,6 +98,9 @@ export interface GameState {
   perkPointsSeen: number;
   /** Landmarks ever built (each is a perk point, even if moved or sold). */
   landmarks: string[];
+  settings: { sound: boolean; music: boolean };
+  /** The daily quest's date ("2026-10-08"); a new one is posted when the day changes. */
+  dailyDate: string;
   /** Fishing areas you own a boat for (the Harbor needs none). */
   boats: AreaId[];
   /** Where you fish right now. */
@@ -131,6 +136,8 @@ function freshState(): GameState {
     perks: {},
     perkPointsSeen: -1,
     landmarks: [],
+    settings: { sound: true, music: true },
+    dailyDate: '',
     boats: [],
     area: 'harbor',
     buildings: [],
@@ -169,6 +176,7 @@ function load(): GameState {
       // Merge so new fields added later get their defaults.
       Object.assign(state, saved);
       state.upgrades = { ...freshState().upgrades, ...saved.upgrades };
+      state.settings = { ...freshState().settings, ...saved.settings };
     }
   } catch {
     // Corrupt or blocked storage: start fresh.

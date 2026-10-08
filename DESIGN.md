@@ -150,6 +150,14 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 - **Landmarks** (Build → Special, one each, +15 mood within 6 tiles, +1 perk point): Fisher Statue (Lv 7, $100k, fish +10%), Clock Tower (Lv 8, $300k, income +10%), Grand Lighthouse (Lv 9, $800k, legendaries +10%), Harbor Gate (Lv 10, $2M, +8 happiness everywhere).
 - **Perk tree** (Perks button in your house): three branches — Fishing (Sharp Hooks, Quick Reel, Big Bucket, Steady Hands, Lucky Charm), Town (Shopkeeping, Welcoming, Cheerful, Long Nap, Prosperity), Trade (Cold Storage, Haggler, Busy Docks, Export Deals, Big Contracts). Tier 2 perks need 2 points in the branch, tier 3 need 4. Points (21 in all): logbook pages, legendaries, every 10 species, town levels 7+, landmarks. Reset is free.
 
+## Day, night, weather & sound
+
+- **Day/night**: a 24-minute cycle on the wall clock (dusk, night, dawn). The scene tints deep blue at night, the moon replaces the sun, windows and lamps glow in town. Night: fish worth $25+ bite 1.5× as often and legendaries are 5% likelier.
+- **Weather** (changes every 10 min, same in both scenes): Clear 50%, Cloudy 25%, Rain 18% (30% more fish bite), Storm 7% (boats stay in port and come home between casts; fish sell +25%; lightning). Tap the weather badge (top right) for details and timers.
+- **Fish of the day**: one reachable species sells for +50% all day (shown on the dock, tagged TODAY on the catch screen).
+- **Daily quest**: catch some of the fish of the day; bigger coin reward + 5 bait, can't be swapped, renewed at midnight.
+- **Sound**: synthesised effects (taps, cast splash, catches pitched by value, bumps, stings, coins, fanfares, ship horn) and soft generative pentatonic music, slower at night. Toggles in Settings. Audio starts on the first tap (iOS rule).
+
 ## Plans
 
 **Phase 1 — Boats & fishing areas** ✅ (see above). Balance after playtesting.
@@ -164,7 +172,7 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 - Landmarks: a few very expensive one-off monuments with town-wide bonuses.
 - **Perk tree**: perk points earned from logbook milestones, legendary fish, landmarks and new town levels; spent on permanent perks (sale price, reel speed, offline cap, move-in speed…).
 
-**Phase 4 — Life & atmosphere**: day/night, weather (rain helps fishing, storms close the harbor), daily quest, fish of the day, sound & music, real art.
+**Phase 4 — Life & atmosphere** ✅ day/night, weather, daily quest, fish of the day, sound & music. Still open: real art.
 
 **Phase 5 — Ship to iPhone**: Capacitor, Codemagic cloud build, TestFlight (needs the Apple Developer account).
 

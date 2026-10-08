@@ -58,6 +58,8 @@ import { isWorking, touchesWater, wateredTiles } from '../water';
 import { speciesCount } from '../logbook';
 import { branchSpent, buyPerk, canBuyPerk, perkOpen, perkRank, pointSources, pointsEarned, pointsFree, resetPerks } from '../perks';
 import { canningRate, secondsToShip, shipCapacity, takeShipVisits } from '../trade';
+import { ATMOSPHERE_DEPTH, Atmosphere } from '../atmosphere';
+import { sfx } from '../sound';
 import {
   canDeliver,
   crateCapacity,
@@ -247,6 +249,8 @@ export class TownScene extends Phaser.Scene {
   private villagers!: Villagers;
   private questButton!: Button;
   private questBadge!: Phaser.GameObjects.Container;
+  private atmosphere!: Atmosphere;
+  private nightLights?: Phaser.GameObjects.Graphics;
   private questBadgeText!: Phaser.GameObjects.Text;
 
   constructor() {
@@ -293,11 +297,35 @@ export class TownScene extends Phaser.Scene {
     this.time.addEvent({ delay: STATUS_CHECK_MS, loop: true, callback: () => this.refreshBuildingViews() });
     this.time.addEvent({ delay: SMOKE_MS, loop: true, callback: () => this.puffSmoke() });
     this.villagers = new Villagers(this);
+    this.atmosphere = new Atmosphere(this);
+    // Lamps and windows glow through the night tint.
+    this.nightLights = this.add.graphics().setDepth(ATMOSPHERE_DEPTH + 0.5).setBlendMode(Phaser.BlendModes.ADD);
+    this.drawNightLights();
+  }
+
+  /** Warm light from lamp posts and windows once it gets dark. */
+  private drawNightLights(): void {
+    const g = this.nightLights?.clear();
+    if (!g) return;
+    const night = this.atmosphere.night;
+    if (night <= 0.05) return;
+    for (const b of state.buildings) {
+      const def = defOf(b);
+      if (def.category === 'tile') continue;
+      const pos = tileToWorld(b.col, b.row, def.h);
+      if (def.id === 'lampPost') {
+        g.fillStyle(0xffd166, 0.1 * night).fillCircle(pos.x + TILE / 2, pos.y + 8, 30);
+        g.fillStyle(0xffe8a3, 0.3 * night).fillCircle(pos.x + TILE / 2, pos.y + 8, 12);
+      } else if (def.housing || def.jobs || def.category === 'player') {
+        g.fillStyle(0xffc46b, 0.22 * night).fillEllipse(pos.x + (def.w * TILE) / 2, pos.y + def.h * TILE * 0.68, def.w * TILE * 0.7, def.h * TILE * 0.35);
+      }
+    }
   }
 
   update(time: number, deltaMs: number): void {
     const dt = Math.min(deltaMs / 1000, 0.05);
     tickEconomy();
+    this.atmosphere.update(dt, time);
     this.villagers.update(Math.min(deltaMs, 100), time);
     this.topBar.update();
     this.showArrivals();
@@ -319,6 +347,7 @@ export class TownScene extends Phaser.Scene {
 
   /** A trade ship sails in past the pier, unloads its coins, and heads back out to sea. */
   private sailShip(coins: number): void {
+    sfx.horn();
     const y = SHORE_H + 175;
     const g = this.add.graphics();
     g.fillStyle(0x264653).fillPoints(
@@ -939,6 +968,7 @@ export class TownScene extends Phaser.Scene {
 
   /** Redraws any building whose level or staffing changed, and drops views of removed ones. */
   private refreshBuildingViews(): void {
+    if (this.nightLights) this.drawNightLights();
     const counts = workerCounts();
     const wet = wateredTiles();
     const alive = new Set<number>();
@@ -1488,6 +1518,7 @@ export class TownScene extends Phaser.Scene {
     }
     const b = placeBuilding(g.def, g.col, g.row);
     if (!b) return;
+    sfx.place();
     // Decorations stay in build mode so you can dot several around town.
     if (g.def.category !== 'decor') this.exitBuildMode();
     else this.updateRangePreview();
@@ -1650,6 +1681,7 @@ export class TownScene extends Phaser.Scene {
       const progress = Math.min(q.amount, questProgress(q));
       const card = this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 12, 0x264b73);
       if (q.done) card.setStrokeStyle(2, 0x8ee88e);
+      else if (q.daily) card.setStrokeStyle(2, 0xffd166);
       m.add(card);
       m.text(46, y + 18, describeQuest(q), 17, 0);
 
@@ -1674,6 +1706,8 @@ export class TownScene extends Phaser.Scene {
             this.openQuests();
           }
         }, COLORS.buy, 18));
+      } else if (q.daily) {
+        m.text(btnX, y + 76, 'Today only', 13).setColor(COLORS.gold);
       } else {
         const cost = swapCost();
         const swap = makeButton(this, btnX, y + 76, 100, 36, `Swap $${cost}`, () => {
@@ -2015,7 +2049,10 @@ export class TownScene extends Phaser.Scene {
         }
         const label = waiting ? `House ${b.level + 1}` : `$${formatCoins(cost)}`;
         const btn = makeButton(this, right, y, 110, 46, label, () => {
-          if (upgradeBuilding(b)) reopen();
+          if (upgradeBuilding(b)) {
+            sfx.place();
+            reopen();
+          }
         }, COLORS.buy, waiting ? 16 : 18);
         btn.setEnabledLook(!waiting && fishOk && state.coins >= cost, COLORS.buy);
         m.add(btn);
@@ -2209,6 +2246,7 @@ export class TownScene extends Phaser.Scene {
         if (upgradeBuilding(b)) {
           this.refreshBuildingViews();
           this.floatText(b, `Town level ${b.level}!`, 20, COLORS.gold);
+          sfx.fanfare();
           reopen();
         }
       }, COLORS.buy, 18);

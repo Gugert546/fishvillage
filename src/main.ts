@@ -4,6 +4,7 @@ import { FishingScene } from './scenes/FishingScene';
 import { TownScene } from './scenes/TownScene';
 import { save, state } from './state';
 import { ensurePlayerHouse, grantStarterResidents } from './town';
+import { unlockAudio } from './sound';
 
 // House first, so starter cottages for old saves can't take its spot by the dock.
 ensurePlayerHouse();
@@ -28,6 +29,9 @@ const game = new Phaser.Game({
   },
   scene: scenes,
 });
+
+// Audio may only start from a tap (iOS); every tap also wakes it after the app was backgrounded.
+window.addEventListener('pointerdown', unlockAudio);
 
 // Dev-only console handle, e.g. `fv.state.coins = 5000`.
 if (import.meta.env.DEV) Object.assign(window, { fv: { game, state, save } });

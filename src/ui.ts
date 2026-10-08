@@ -5,6 +5,7 @@ import { townHappiness } from './happiness';
 import { discovered, legendOf, pageComplete, pageProgress, regularFish, speciesCount, totalSpecies } from './logbook';
 import { housingCapacity } from './population';
 import { resetGame, save, state } from './state';
+import { setMusic, setSound, sfx } from './sound';
 
 export const UI_DEPTH = 100;
 
@@ -97,6 +98,7 @@ export function makeButton(
     bg.setScale(1);
     if (!pressed) return;
     pressed = false;
+    sfx.tap();
     onClick();
   });
   c.setEnabledLook = (enabled, onColor = color) => bg.setFillStyle(enabled ? onColor : COLORS.disabled);
@@ -293,7 +295,7 @@ function makeGearButton(scene: Phaser.Scene, x: number, y: number, onClick: () =
 export function openSettings(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void): void {
   // Playtesting tools only exist in dev builds (npm run dev), never in a shipped game.
   const cheats = import.meta.env.DEV;
-  const m = new Modal(scene, cheats ? 400 : 200);
+  const m = new Modal(scene, cheats ? 466 : 266);
   setModal(m);
   const close = () => {
     m.destroy();
@@ -301,6 +303,19 @@ export function openSettings(scene: Phaser.Scene, setModal: (m: Modal | undefine
   };
   m.text(GAME_WIDTH / 2, m.top + 34, 'Settings', 28);
   let y = m.top + 90;
+
+  const toggle = (x: number, label: string, on: boolean, flip: () => void) => {
+    const btn = makeButton(scene, x, y, 150, 44, `${label}: ${on ? 'On' : 'Off'}`, () => {
+      flip();
+      save();
+      m.destroy();
+      openSettings(scene, setModal);
+    }, on ? COLORS.primary : COLORS.neutral, 17);
+    m.add(btn);
+  };
+  toggle(GAME_WIDTH / 2 - 82, 'Sound', state.settings.sound, () => setSound(!state.settings.sound));
+  toggle(GAME_WIDTH / 2 + 82, 'Music', state.settings.music, () => setMusic(!state.settings.music));
+  y += 66;
 
   if (cheats) {
     m.text(GAME_WIDTH / 2, y, 'Playtesting', 18).setColor(COLORS.gold);
