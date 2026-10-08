@@ -3,6 +3,7 @@
 import { BUILDING_BY_ID, FISH, TRADE } from './config';
 import { onIce, reservedFish, unstoreFish } from './crates';
 import { perkBonus } from './perks';
+import { projectDone } from './projects';
 import { workerCounts } from './population';
 import { queueToast } from './quests';
 import { state, type PlacedBuilding } from './state';
@@ -85,7 +86,7 @@ export function tickTrade(seconds: number): void {
     const load = Math.min(state.cans, capacity);
     if (load === 0) continue;
     const value = (state.cansValue / state.cans) * load;
-    const coins = Math.round(value * (1 + perkBonus('exportDeals')));
+    const coins = Math.round(value * (1 + perkBonus('exportDeals') + (projectDone('tradeOffice') ? 0.2 : 0)));
     state.cans -= load;
     state.cansValue -= value;
     state.coins += coins;

@@ -18,6 +18,7 @@ import {
   type BaitDef,
   type BuildingDef,
   type BuildingId,
+  type MerchantItemId,
   type UpgradeDef,
 } from './config';
 import { assignJobs, evictFrom, housingOf, jobSlots, shopOpen, tickPopulation, totalJobs, workerCounts } from './population';
@@ -25,6 +26,7 @@ import { questEvent } from './quests';
 import { isWorking, touchesWater, wateredTiles } from './water';
 import { discovered } from './logbook';
 import { weather } from './world';
+import { projectDone } from './projects';
 import { fishName, hasFish, payUpgradeFish, upgradeNeed } from './crates';
 import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
 
@@ -55,6 +57,8 @@ export function countOwned(type: BuildingId): number {
 
 /** How many of a building you may own right now, given the town level. */
 export function countCap(def: BuildingDef): number {
+  // Merchant decorations: one for each bought.
+  if (def.merchantOnly) return state.merchantBought[def.id as MerchantItemId] ?? 0;
   return def.countAtLevel ? Math.min(def.maxCount, def.countAtLevel(townLevel())) : def.maxCount;
 }
 
@@ -335,9 +339,13 @@ export function ownsArea(area: AreaDef): boolean {
 }
 
 /** Where the next cast happens: the chosen area if you own its boat, else the Harbor. */
+/** Storms keep boats in port, unless the Breakwater is built. */
+export function stormBound(): boolean {
+  return weather() === 'storm' && !projectDone('breakwater');
+}
+
 export function currentArea(): AreaDef {
-  // Storms keep every boat in port.
-  if (weather() === 'storm') return AREA_BY_ID.harbor;
+  if (stormBound()) return AREA_BY_ID.harbor;
   const area = AREA_BY_ID[state.area];
   return area && ownsArea(area) ? area : AREA_BY_ID.harbor;
 }

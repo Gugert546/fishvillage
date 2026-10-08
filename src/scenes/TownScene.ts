@@ -3,8 +3,11 @@ import {
   AREAS,
   BAITS,
   FISH,
+  FESTIVAL,
   PERKS,
   PERK_TIER_POINTS,
+  PROJECTS,
+  PROJECT_CHUNKS,
   TRADE,
   type PerkBranch,
   BAIT_BY_ID,
@@ -33,6 +36,7 @@ import {
   homeMood,
   incomeMultiplier,
   incomePerWorkerOf,
+  wagePerWorker,
   touchesRoad,
   workplaceIncome,
 } from '../happiness';
@@ -59,6 +63,9 @@ import { speciesCount } from '../logbook';
 import { branchSpent, buyPerk, canBuyPerk, perkOpen, perkRank, pointSources, pointsEarned, pointsFree, resetPerks } from '../perks';
 import { canningRate, secondsToShip, shipCapacity, takeShipVisits } from '../trade';
 import { ATMOSPHERE_DEPTH, Atmosphere } from '../atmosphere';
+import { festivalActive, festivalCost, festivalMinutesLeft, hostFestival } from '../festival';
+import { boughtThisVisit, buyItem, itemPrice, merchantHere, merchantMinutes, merchantStock } from '../merchant';
+import { fundProject, nextChunk, projectFunded, projectUnlocked } from '../projects';
 import { sfx } from '../sound';
 import {
   canDeliver,
@@ -129,6 +136,7 @@ import {
   makeButton,
   makeListRow,
   makeText,
+  onTap,
   openLogbook,
   openSettings,
   showOfflineEarnings,
@@ -204,6 +212,8 @@ interface ViewStatus {
   keeper?: number;
   /** A waterside building that has lost its water. */
   dry?: boolean;
+  /** Town Square: a festival is on. */
+  festival?: boolean;
 }
 
 /** World-space top-left of a footprint whose bottom-left tile is (col, row). */
@@ -250,6 +260,7 @@ export class TownScene extends Phaser.Scene {
   private questButton!: Button;
   private questBadge!: Phaser.GameObjects.Container;
   private atmosphere!: Atmosphere;
+  private merchantBoat?: Phaser.GameObjects.Container;
   private nightLights?: Phaser.GameObjects.Graphics;
   private questBadgeText!: Phaser.GameObjects.Text;
 
@@ -485,6 +496,7 @@ export class TownScene extends Phaser.Scene {
   private drawBuilding(def: BuildingDef, status?: ViewStatus, placed?: PlacedBuilding): Phaser.GameObjects.Container {
     if (def.category === 'decor' || def.category === 'tile') return this.decorView(def, placed);
     if (def.id === 'lighthouse') return this.lighthouseView(def, status);
+    if (def.festivals) return this.squareView(status);
     const pw = def.w * TILE;
     const ph = def.h * TILE;
     const eave = ph * 0.42;
@@ -785,6 +797,54 @@ export class TownScene extends Phaser.Scene {
     return view;
   }
 
+  /** Paved plaza with a bandstand; bunting, stalls and confetti while a festival is on. */
+  private squareView(status?: ViewStatus): Phaser.GameObjects.Container {
+    const s = TILE * 4;
+    const g = this.add.graphics();
+    g.fillStyle(0xd6ccc2).fillRect(2, 2, s - 4, s - 4);
+    g.lineStyle(1, 0xb5a99a, 0.8);
+    for (let i = 15; i < s; i += 15) {
+      g.lineBetween(2, i, s - 2, i);
+      g.lineBetween(i, 2, i, s - 2);
+    }
+    // Bandstand
+    g.fillStyle(0x000000, 0.18).fillCircle(s / 2 + 3, s / 2 + 4, 28);
+    g.fillStyle(0xfefae0).fillCircle(s / 2, s / 2, 26);
+    g.fillStyle(0xe76f51).fillTriangle(s / 2 - 30, s / 2 - 8, s / 2, s / 2 - 34, s / 2 + 30, s / 2 - 8);
+    g.fillStyle(0x6b4f3a);
+    for (const dx of [-20, 20]) g.fillRect(s / 2 + dx - 2, s / 2 - 8, 4, 22);
+    // Benches in the corners
+    g.fillStyle(0x8b5a2b);
+    for (const [bx, by] of [[10, 12], [s - 30, 12], [10, s - 18], [s - 30, s - 18]]) g.fillRect(bx, by, 20, 6);
+    const parts: Phaser.GameObjects.GameObject[] = [g];
+    if (status?.festival) {
+      const f = this.add.graphics();
+      // Bunting around the edge
+      const colors = [0xe63946, 0xffd166, 0x2a9d8f, 0x457b9d, 0xf4a261];
+      f.lineStyle(1, 0x5c3a1e);
+      f.lineBetween(4, 6, s - 4, 6);
+      f.lineBetween(4, s - 6, s - 4, s - 6);
+      for (let x = 8, i = 0; x < s - 8; x += 10, i++) {
+        f.fillStyle(colors[i % colors.length]);
+        f.fillTriangle(x, 6, x + 8, 6, x + 4, 13);
+        f.fillTriangle(x, s - 6, x + 8, s - 6, x + 4, s + 1);
+      }
+      // Market stalls
+      for (const [sx, sy, c] of [[18, s / 2 - 10, 0xe63946], [s - 40, s / 2 - 10, 0x2a9d8f]] as [number, number, number][]) {
+        f.fillStyle(0x8b5a2b).fillRect(sx, sy + 8, 22, 12);
+        f.fillStyle(c).fillRect(sx - 2, sy, 26, 8);
+      }
+      parts.push(f);
+      // Confetti drifting down over the square
+      for (let i = 0; i < 10; i++) {
+        const bit = this.add.rectangle(10 + Math.random() * (s - 20), 0, 3, 3, colors[i % colors.length]);
+        this.tweens.add({ targets: bit, y: s - 10, x: bit.x + 10, angle: 360, duration: 2000 + Math.random() * 1500, delay: Math.random() * 2000, repeat: -1 });
+        parts.push(bit);
+      }
+    }
+    return this.add.container(0, 0, parts);
+  }
+
   /** A stone plinth with the legendary fish mounted on top, glinting. */
   private trophyView(fishId: string): Phaser.GameObjects.Container {
     const s = TILE * 2;
@@ -885,6 +945,33 @@ export class TownScene extends Phaser.Scene {
         g.fillStyle(0xffe066);
         g.fillCircle(s / 2, 8, 5);
         break;
+      case 'palm': {
+        g.fillStyle(0x7f5539).fillRect(s / 2 - 2, 8, 4, s - 10);
+        g.fillStyle(0x2d6a4f);
+        for (const [dx, dy] of [[-11, -2], [11, -2], [-8, 4], [8, 4], [0, -6]]) g.fillEllipse(s / 2 + dx, 8 + dy, 14, 6);
+        g.fillStyle(0x9c6644).fillCircle(s / 2 - 2, 11, 2).fillCircle(s / 2 + 2, 11, 2);
+        break;
+      }
+      case 'goldenAnchor': {
+        g.lineStyle(3, 0xffd166);
+        g.lineBetween(s / 2, 6, s / 2, s - 6);
+        g.lineBetween(s / 2 - 7, 11, s / 2 + 7, 11);
+        g.strokeCircle(s / 2, 5, 3);
+        g.beginPath();
+        g.arc(s / 2, s - 14, 9, 0.2, Math.PI - 0.2, false);
+        g.strokePath();
+        break;
+      }
+      case 'koiPond': {
+        const c = s; // 2×2
+        g.fillStyle(0x6c757d).fillEllipse(c, c, 2 * c - 6, 2 * c - 14);
+        g.fillStyle(0x2a9d8f).fillEllipse(c, c, 2 * c - 14, 2 * c - 22);
+        for (const [fx, fy, col] of [[c - 10, c - 4, 0xff7f2a], [c + 8, c + 6, 0xffffff], [c + 2, c - 10, 0xe63946]] as [number, number, number][]) {
+          g.fillStyle(col).fillEllipse(fx, fy, 9, 4);
+        }
+        g.fillStyle(0x52b788).fillCircle(c + 14, c - 8, 5);
+        break;
+      }
       case 'statue': {
         // Plinth with a fisher holding up a big catch.
         g.fillStyle(0x000000, 0.2).fillEllipse(s, 2 * s - 6, 2 * s - 12, 12);
@@ -969,6 +1056,7 @@ export class TownScene extends Phaser.Scene {
   /** Redraws any building whose level or staffing changed, and drops views of removed ones. */
   private refreshBuildingViews(): void {
     if (this.nightLights) this.drawNightLights();
+    this.refreshMerchantBoat();
     const counts = workerCounts();
     const wet = wateredTiles();
     const alive = new Set<number>();
@@ -978,10 +1066,12 @@ export class TownScene extends Phaser.Scene {
       alive.add(b.id);
       const keeper = jobSlots(b) > 0 ? state.residents.find((r) => r.job === b.id)?.id : undefined;
       const dry = !!defOf(b).needsWater && !touchesWater(b, wet);
-      const status: ViewStatus = { level: b.level, unstaffed: jobSlots(b) > 0 && !counts.get(b.id), keeper, dry };
+      const festival = !!defOf(b).festivals && festivalActive();
+      const status: ViewStatus = { level: b.level, unstaffed: jobSlots(b) > 0 && !counts.get(b.id), keeper, dry, festival };
       const old = this.viewStatus.get(b.id);
       const view = this.buildingViews.get(b.id);
-      const changed = !old || old.level !== status.level || old.unstaffed !== status.unstaffed || old.keeper !== keeper;
+      const changed =
+        !old || old.level !== status.level || old.unstaffed !== status.unstaffed || old.keeper !== keeper || old.festival !== festival;
       if (!view || changed || old.dry !== dry) {
         this.addBuildingView(b, status);
       } else {
@@ -1772,6 +1862,106 @@ export class TownScene extends Phaser.Scene {
     m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral));
   }
 
+  /** Town projects: pay a chunk at a time; each finished project has a lasting effect. */
+  private openProjects(square: PlacedBuilding): void {
+    this.closeModal();
+    this.panelFor = undefined;
+    const cardH = 96;
+    const m = (this.modal = new Modal(this, 150 + PROJECTS.length * cardH));
+    m.text(GAME_WIDTH / 2, m.top + 30, 'Town projects', 26);
+    m.text(GAME_WIDTH / 2, m.top + 60, `Paid in ${PROJECT_CHUNKS} parts · works for good once built`, 13).setAlpha(0.8);
+    let y = m.top + 92;
+    for (const p of PROJECTS) {
+      const funded = projectFunded(p);
+      const done = funded >= p.cost;
+      const open = projectUnlocked(p);
+      const card = this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 10, 0x264b73);
+      if (done) card.setStrokeStyle(2, 0x8ee88e);
+      m.add(card);
+      m.text(46, y + 14, p.name, 17, 0).setAlpha(open ? 1 : 0.6);
+      m.text(46, y + 36, p.effect, 13, 0).setColor(COLORS.gold).setWordWrapWidth(GAME_WIDTH - 200);
+      const barW = 200;
+      m.add(this.add.rectangle(46, y + 66, barW, 12, 0x0b2545).setOrigin(0, 0.5));
+      m.add(this.add.rectangle(46, y + 66, Math.max(2, (barW * funded) / p.cost), 12, done ? 0x52b788 : 0xf5a623).setOrigin(0, 0.5));
+      m.text(46 + barW + 8, y + 66, `$${formatCoins(funded)}/$${formatCoins(p.cost)}`, 12, 0).setAlpha(0.8);
+      const btnX = GAME_WIDTH - 86;
+      if (done) m.text(btnX, y + 24, 'Built ✓', 16).setColor('#8ee88e');
+      else if (!open) m.text(btnX, y + 24, `House Lv ${p.unlockLevel}`, 14).setColor('#ffb4a2');
+      else {
+        const chunk = nextChunk(p);
+        const btn = makeButton(this, btnX, y + 24, 100, 40, `$${formatCoins(chunk)}`, () => {
+          if (fundProject(p)) {
+            sfx.place();
+            if (projectFunded(p) >= p.cost) {
+              sfx.fanfare();
+              showToast(this, `${p.name} built!`);
+            }
+            this.openProjects(square);
+          }
+        }, COLORS.buy, 16);
+        btn.setEnabledLook(state.coins >= chunk, COLORS.buy);
+        m.add(btn);
+      }
+      y += cardH;
+    }
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Back', () => this.openBuildingPanel(square), COLORS.neutral));
+  }
+
+  /** The traveling merchant's goods for this visit (one of each). */
+  private openMerchant(): void {
+    this.leaveModes();
+    const stock = merchantStock();
+    const cardH = 96;
+    const m = (this.modal = new Modal(this, 160 + stock.length * cardH));
+    m.text(GAME_WIDTH / 2, m.top + 30, 'Traveling merchant', 26);
+    m.text(GAME_WIDTH / 2, m.top + 60, merchantHere() ? `Sails on in ${merchantMinutes()} min · new goods every visit` : 'Gone for now', 13).setAlpha(0.8);
+    let y = m.top + 92;
+    for (const item of stock) {
+      const price = itemPrice(item);
+      const got = boughtThisVisit(item);
+      m.add(this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 10, 0x3c2a4d).setStrokeStyle(2, 0xe7b6f7, 0.5));
+      m.text(46, y + 16, item.name, 18, 0).setColor('#e7b6f7');
+      m.text(46, y + 40, item.description, 13, 0).setOrigin(0, 0).setWordWrapWidth(GAME_WIDTH - 200).setAlpha(0.85);
+      const btn = makeButton(this, GAME_WIDTH - 86, y + 40, 110, 44, got ? 'Bought' : `$${formatCoins(price)}`, () => {
+        if (buyItem(item)) {
+          sfx.coins();
+          showToast(this, item.charges ? `${item.name}: ready on your next cast` : `${item.name} bought!`);
+          this.openMerchant();
+        }
+      }, COLORS.buy, 17);
+      btn.setEnabledLook(!got && merchantHere() && state.coins >= price, COLORS.buy);
+      m.add(btn);
+      y += cardH;
+    }
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral));
+  }
+
+  /** The merchant's boat at the pier while they're in town; tap it to shop. */
+  private refreshMerchantBoat(): void {
+    const here = merchantHere();
+    if (here && !this.merchantBoat) {
+      const g = this.add.graphics();
+      g.fillStyle(0x5a189a).fillPoints(
+        [new Phaser.Math.Vector2(-40, -4), new Phaser.Math.Vector2(40, -4), new Phaser.Math.Vector2(30, 12), new Phaser.Math.Vector2(-34, 12)],
+        true,
+      );
+      g.fillStyle(0xffd166).fillRect(-40, -4, 80, 3);
+      g.lineStyle(2, 0x6b4f3a).lineBetween(0, -4, 0, -50);
+      g.fillStyle(0xe7b6f7).fillTriangle(2, -48, 2, -10, 30, -10);
+      g.fillStyle(0xc77dff).fillTriangle(-2, -44, -2, -10, -24, -10);
+      const label = makeText(this, 0, -66, 'Merchant ›', 15).setOrigin(0.5).setColor('#e7b6f7');
+      const boat = this.add.container(DOCK.x - 70, SHORE_H + 90, [g, label]).setDepth(5).setSize(90, 90);
+      this.tweens.add({ targets: g, y: 2, duration: 1000, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+      onTap(boat, () => {
+        if (!this.modal) this.openMerchant();
+      });
+      this.merchantBoat = boat;
+    } else if (!here && this.merchantBoat) {
+      this.merchantBoat.destroy();
+      this.merchantBoat = undefined;
+    }
+  }
+
   /** What's on ice, with a way to sell it all. */
   private openIcehouse(b: PlacedBuilding): void {
     this.closeModal();
@@ -1859,13 +2049,15 @@ export class TownScene extends Phaser.Scene {
       const unlocked = isUnlocked(def);
       // Trophies wait for their legendary fish rather than a house level.
       const needsFish = !!def.trophy && !unlocked;
+      const fromMerchant = !!def.merchantOnly && cap === 0;
       if (!unlocked) {
         preview.setAlpha(0.35);
         const why = needsFish ? `Catch the legendary ${FISH.find((f) => f.id === def.trophy)!.name}` : `Unlocks at house level ${def.unlockLevel}`;
         m.text(110, y + 38, why, 12, 0).setColor('#ffb4a2');
       }
       const affordable = state.coins >= cost;
-      const label = needsFish ? 'Catch' : !unlocked ? `Lv ${def.unlockLevel}` : maxed ? (def.maxCount === 1 ? 'Built' : 'Max') : `$${formatCoins(cost)}`;
+      if (fromMerchant) m.text(110, y + 38, 'Sold by the traveling merchant', 12, 0).setColor('#e7b6f7');
+      const label = fromMerchant ? 'Merchant' : needsFish ? 'Catch' : !unlocked ? `Lv ${def.unlockLevel}` : maxed ? (def.maxCount === 1 ? 'Built' : 'Max') : cost === 0 ? 'Place' : `$${formatCoins(cost)}`;
       const btn = makeButton(this, GAME_WIDTH - 80, y, 100, 46, label, () => {
         if (!unlocked || maxed || !affordable) return;
         this.closeModal();
@@ -1885,6 +2077,7 @@ export class TownScene extends Phaser.Scene {
     if (def.housing) return `${size} · ${def.housing(1)} residents`;
     if (def.category === 'tile') return `${size} · $${def.baseCost} per tile`;
     if (def.landmark) return `${size} · landmark · +1 perk`;
+    if (def.festivals) return `${size} · festivals & projects`;
     if (def.happiness) return `${size} · +${def.happiness.amount} mood · ${def.happiness.radius} tiles`;
     const jobs = def.jobs?.(1) ?? 0;
     const pay = def.incomePerWorker?.(1) ?? 0;
@@ -1927,6 +2120,7 @@ export class TownScene extends Phaser.Scene {
       (upgradable ? 70 : 0) +
       sells.length * 66 +
       (def.id === 'baitShop' || def.id === 'boatyard' || def.id === 'aquarium' || def.id === 'icehouse' ? 66 : 0) +
+      (def.festivals ? 132 : 0) +
       (upgradeNeed(b) ? 22 : 0) +
       130;
     const m = (this.modal = new Modal(this, height));
@@ -1976,6 +2170,8 @@ export class TownScene extends Phaser.Scene {
       const slots = jobSlots(b);
       const target = staffTarget(b);
       m.text(40, y, `Workers ${workers.length}/${slots}`, 18, 0);
+      const wage = wagePerWorker(b);
+      if (wage > 0) m.text(40, y + 20, `wages $${fmtRate(wage)}/min each`, 12, 0).setAlpha(0.6);
       const star = makeButton(this, right, y, 120, 38, b.priority ? '★ Priority' : '☆ Priority', () => {
         togglePriority(b);
         reopen();
@@ -2086,6 +2282,34 @@ export class TownScene extends Phaser.Scene {
       m.text(40, y - 12, 'Bait', 18, 0);
       m.text(40, y + 14, owned > 0 ? `You have ${owned} bait` : 'Lures better fish', 14, 0).setAlpha(0.75);
       m.add(makeButton(this, right, y, 110, 46, 'Shop ›', () => this.openBaitStore(b), COLORS.primary, 18));
+      y += 66;
+    }
+
+    if (def.festivals) {
+      const on = festivalActive();
+      const cost = festivalCost();
+      m.text(40, y - 12, on ? `${state.festival!.name}!` : 'Festival', 18, 0).setColor(on ? COLORS.gold : '#ffffff');
+      const what = `+${FESTIVAL.income * 100}% income, +${FESTIVAL.happiness} mood, fish +${FESTIVAL.fishPrice * 100}%`;
+      m.text(40, y + 14, on ? `${festivalMinutesLeft()} min left · ${what}` : `${FESTIVAL.minutes(b.level)} min of ${what}`, 12, 0)
+        .setAlpha(0.8)
+        .setWordWrapWidth(GAME_WIDTH - 190);
+      if (!on) {
+        const host = makeButton(this, right, y, 110, 46, `$${formatCoins(cost)}`, () => {
+          if (hostFestival(b.level)) {
+            sfx.fanfare();
+            showToast(this, `${state.festival!.name} has begun!`);
+            this.refreshBuildingViews();
+            reopen();
+          }
+        }, COLORS.buy, 18);
+        host.setEnabledLook(state.coins >= cost, COLORS.buy);
+        m.add(host);
+      }
+      y += 66;
+      m.text(40, y - 12, 'Town projects', 18, 0);
+      const done = PROJECTS.filter((p) => projectFunded(p) >= p.cost).length;
+      m.text(40, y + 14, `${done}/${PROJECTS.length} built · big lasting upgrades`, 13, 0).setAlpha(0.75);
+      m.add(makeButton(this, right, y, 110, 46, 'Board ›', () => this.openProjects(b), COLORS.primary, 18));
       y += 66;
     }
 

@@ -1,7 +1,11 @@
 // Passive income and town growth. Both run on wall-clock time, so they keep going while the
 // app is backgrounded or closed (up to the offline cap, which Warehouses raise).
 
-import { moveInMultiplier, totalIncome, townHappiness } from './happiness';
+import { FESTIVAL } from './config';
+import { festivalBonus } from './festival';
+import { moveInMultiplier, totalIncome, totalWages, townHappiness } from './happiness';
+import { checkMerchant } from './merchant';
+import { projectDone } from './projects';
 import { tickOrders } from './crates';
 import { checkPerkPoints, perkBonus } from './perks';
 import { tickTrade } from './trade';
@@ -21,9 +25,9 @@ let lastQuestCheck = 0;
 let pendingOffline = { coins: 0, residents: 0 };
 let arrivals: Resident[] = [];
 
-/** Town income in coins per minute (the unit all income is designed and shown in). */
+/** Town income after wages, in coins per minute (the unit all income is designed and shown in). */
 export function incomePerMinute(): number {
-  return totalIncome();
+  return totalIncome() - totalWages();
 }
 
 /** Call every frame from the active scene. */
@@ -34,15 +38,17 @@ export function tickEconomy(): void {
   const effective = Math.min(gapS, offlineCapHours() * 3600);
 
   // Pay out with the current workforce first, then let new residents arrive.
-  const earned = (incomePerMinute() / 60) * effective;
+  // Wages can outrun income in a town of services, but never push coins below zero.
+  const earned = Math.max(-state.coins, (incomePerMinute() / 60) * effective);
   state.coins += earned;
   // Happier towns attract newcomers faster.
-  const arrived = tickPopulation(effective * moveInMultiplier(townHappiness() ?? 50) * (1 + perkBonus('welcoming')));
+  const moveIn = (1 + perkBonus('welcoming') + (projectDone('railway') ? 0.25 : 0)) * (festivalBonus(FESTIVAL.moveIn - 1) + 1);
+  const arrived = tickPopulation(effective * moveInMultiplier(townHappiness() ?? 50) * moveIn);
   tickOrders(effective);
   tickTrade(effective);
 
   if (gapS > AWAY_THRESHOLD_S) {
-    pendingOffline.coins += earned;
+    pendingOffline.coins += Math.max(0, earned);
     pendingOffline.residents += arrived.length;
   } else {
     arrivals.push(...arrived);
@@ -51,6 +57,7 @@ export function tickEconomy(): void {
   if (now - lastQuestCheck > QUEST_CHECK_MS) {
     checkQuests();
     checkPerkPoints();
+    checkMerchant();
     lastQuestCheck = now;
   }
 

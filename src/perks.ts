@@ -15,6 +15,7 @@ import {
   type PerkId,
 } from './config';
 import { discovered, pageComplete, speciesCount } from './logbook';
+import { chartPoints } from './merchant';
 import { queueToast } from './quests';
 import { save, state } from './state';
 import { townLevel } from './town';
@@ -33,6 +34,7 @@ export function pointSources(): { label: string; points: number; max: number }[]
     { label: `Every ${SPECIES_PER_PERK_POINT} species`, points: Math.floor(speciesCount() / SPECIES_PER_PERK_POINT), max: Math.floor(FISH.length / SPECIES_PER_PERK_POINT) },
     { label: 'Town levels 7+', points: Math.max(0, townLevel() - 6), max: MAX_TOWN_LEVEL - 6 },
     { label: 'Landmarks', points: state.landmarks.length, max: landmarks.length },
+    { label: 'Ancient Charts', points: chartPoints(), max: 3 },
   ];
 }
 

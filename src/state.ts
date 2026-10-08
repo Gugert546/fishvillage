@@ -1,4 +1,16 @@
-import { BASE_STATS, UPGRADES, type AreaId, type BaitId, type PerkId, type BuildingId, type FishingStats, type UpgradeId } from './config';
+import {
+  BASE_STATS,
+  UPGRADES,
+  type AreaId,
+  type BaitId,
+  type BuildingId,
+  type CharmId,
+  type FishingStats,
+  type MerchantItemId,
+  type PerkId,
+  type ProjectId,
+  type UpgradeId,
+} from './config';
 
 const SAVE_KEY = 'fishvillage.save.v1';
 const SAVE_VERSION = 2;
@@ -99,6 +111,18 @@ export interface GameState {
   /** Landmarks ever built (each is a perk point, even if moved or sold). */
   landmarks: string[];
   settings: { sound: boolean; music: boolean };
+  /** The festival going on right now (until a wall-clock time), if any. */
+  festival: { until: number; name: string } | null;
+  /** Merchant boosts left, in casts. */
+  charms: Partial<Record<CharmId, number>>;
+  /** Everything ever bought from the merchant (merchant decor can be placed this many times). */
+  merchantBought: Partial<Record<MerchantItemId, number>>;
+  /** The merchant visit you shopped at, and what you bought there (one of each per visit). */
+  merchantVisit: { slot: number; bought: MerchantItemId[] };
+  /** Last merchant visit announced with a toast. */
+  merchantSeen: number;
+  /** Coins put into each town project so far. */
+  projects: Partial<Record<ProjectId, number>>;
   /** The daily quest's date ("2026-10-08"); a new one is posted when the day changes. */
   dailyDate: string;
   /** Fishing areas you own a boat for (the Harbor needs none). */
@@ -137,6 +161,12 @@ function freshState(): GameState {
     perkPointsSeen: -1,
     landmarks: [],
     settings: { sound: true, music: true },
+    festival: null,
+    charms: {},
+    merchantBought: {},
+    merchantVisit: { slot: -1, bought: [] },
+    merchantSeen: -1,
+    projects: {},
     dailyDate: '',
     boats: [],
     area: 'harbor',

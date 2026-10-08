@@ -1,6 +1,7 @@
 // Happiness: how residents feel about where they live, and what that does for the town.
 
-import { HAPPINESS } from './config';
+import { FESTIVAL, HAPPINESS, WAGES } from './config';
+import { festivalBonus } from './festival';
 import { deliveryBoost } from './crates';
 import { landmarkBonus, perkBonus } from './perks';
 import { speciesCount } from './logbook';
@@ -60,7 +61,7 @@ export function homeMood(home: PlacedBuilding, roads = roadTiles(), wet = watere
   }
   const road = touchesRoad(home, roads) ? HAPPINESS.roadNextToHome : 0;
   const water = touchesWater(home, wet) ? HAPPINESS.waterNextToHome : 0;
-  const town = perkBonus('cheerful') + landmarkBonus('happiness');
+  const town = perkBonus('cheerful') + landmarkBonus('happiness') + festivalBonus(FESTIVAL.happiness);
   return { base: HAPPINESS.base, decor, road, water, tavern, town, total: HAPPINESS.base + decor + road + water + tavern + town };
 }
 
@@ -151,7 +152,24 @@ export function incomePerWorkerOf(b: PlacedBuilding): number {
 
 /** Town-wide income boost from perks and the Clock Tower. */
 export function townIncomeMultiplier(): number {
-  return 1 + perkBonus('shopkeeping') + perkBonus('prosperity') + landmarkBonus('income');
+  return 1 + perkBonus('shopkeeping') + perkBonus('prosperity') + landmarkBonus('income') + festivalBonus(FESTIVAL.income);
+}
+
+/**
+ * What one worker here is paid per minute: a share of what a typical worker at this building's
+ * tier earns, a little more per building level.
+ */
+export function wagePerWorker(b: PlacedBuilding): number {
+  const def = defOf(b);
+  if (!def.jobs) return 0;
+  const grade = def.incomePerWorker?.(1) ?? WAGES.grade[def.unlockLevel ?? 1] ?? WAGES.grade[WAGES.grade.length - 1];
+  const service = def.incomePerWorker || def.speciesIncomePerWorker ? 1 : WAGES.serviceFactor;
+  return WAGES.share * grade * service * (1 + WAGES.perLevel * (b.level - 1));
+}
+
+/** All wages in town per minute. */
+export function totalWages(counts = workerCounts()): number {
+  return state.buildings.reduce((sum, b) => sum + wagePerWorker(b) * (counts.get(b.id) ?? 0), 0);
 }
 
 /** Coins per minute for the whole town. */

@@ -1,6 +1,7 @@
 // Sound effects and music, synthesised with the Web Audio API (no audio files to ship).
 // Browsers (iOS especially) only allow audio after a tap, so everything waits for unlockAudio().
 
+import { festivalActive } from './festival';
 import { isNight } from './world';
 import { state } from './state';
 
@@ -123,7 +124,10 @@ let beat = 0;
 function musicStep(): void {
   if (!ctx || !state.settings.music || ctx.state !== 'running') return;
   const night = isNight();
-  const root = ROOTS[Math.floor(beat / 8) % ROOTS.length] * (night ? 0.75 : 1);
+  const party = festivalActive();
+  const root = ROOTS[Math.floor(beat / 8) % ROOTS.length] * (night && !party ? 0.75 : 1);
+  // Festivals: a bouncier second voice on the off-beats.
+  if (party && beat % 2 === 1) tone(root * 4 * PENTATONIC[beat % PENTATONIC.length], 0.25, { type: 'square', volume: 0.025, bus: musicBus });
   if (beat % 8 === 0) tone(root / 2, 3.2, { type: 'sine', volume: 0.12, attack: 0.4, bus: musicBus });
   if (Math.random() < (night ? 0.35 : 0.55)) {
     const step = PENTATONIC[Math.floor(Math.random() * PENTATONIC.length)];

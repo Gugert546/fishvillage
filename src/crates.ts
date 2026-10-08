@@ -17,6 +17,7 @@ import { fishingStats, save, state, type Order, type PlacedBuilding } from './st
 import { ownsArea, townLevel } from './town';
 import { isWorking, wateredTiles } from './water';
 import { perkBonus } from './perks';
+import { projectDone } from './projects';
 
 const fishById = (id: string): FishType => FISH.find((f) => f.id === id)!;
 export const fishName = (id: string): string => fishById(id).name;
@@ -127,7 +128,7 @@ function newOrder(): Order | undefined {
   const b = shops[Math.floor(Math.random() * shops.length)];
   const f = fish[Math.floor(Math.random() * fish.length)];
   const amount = orderAmount(f);
-  return { id: state.nextOrderId++, building: b.id, fish: f.id, amount, coins: Math.round(f.value * amount * ORDERS.payMultiplier * (1 + perkBonus('haggler'))) };
+  return { id: state.nextOrderId++, building: b.id, fish: f.id, amount, coins: Math.round(f.value * amount * ORDERS.payMultiplier * (1 + perkBonus('haggler') + (projectDone('tradeOffice') ? 0.2 : 0))) };
 }
 
 /** Drops orders from buildings that are gone, and posts new ones over time. */

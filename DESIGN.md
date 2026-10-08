@@ -158,6 +158,14 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 - **Daily quest**: catch some of the fish of the day; bigger coin reward + 5 bait, can't be swapped, renewed at midnight.
 - **Sound**: synthesised effects (taps, cast splash, catches pitched by value, bumps, stings, coins, fanfares, ship horn) and soft generative pentatonic music, slower at night. Toggles in Settings. Audio starts on the first tap (iOS rule).
 
+## Spending: wages, festivals, the merchant & town projects
+
+- **Wages** (mild): each worker costs 15% of what a typical worker at that building's tier earns (services pay 60% of that), +15% per building level. The top bar shows income after wages (red if negative); coins never drop below $0. Building panels list the wage per worker.
+- **Town Square** (Lv 2, 4×4, +8 mood within 4 tiles): host a **festival** for ~10 minutes of town income (min $150). It lasts 30/40/50 min (Square Lv 1/2/3): +25% income, +15 happiness, fish +15%, move-ins ×2, bunting, stalls, confetti and bouncier music.
+- **Traveling merchant** (Lv 3): calls every 90 min and stays 30 (a purple boat at the pier; tap it). Three goods per visit, one of each: Golden Lure (next cast's legendary is waiting), Market Voucher (double prices for 5 casts), Golden Net (+3 hook for 10 casts), Ancient Chart (+1 perk point; $250k, $500k, $750k; max 3), and merchant-only decor (Exotic Palm, Golden Anchor, Koi Pond). Prices grow with town level.
+- **Town projects** (Town Square → Board, paid in 10 parts): Weather Station (Lv 4, $50k, rain 60% more fish), Breakwater (Lv 5, $200k, boats sail in storms), Railway Station (Lv 6, $500k, +4h offline, move-ins +25%), Fish Auction (Lv 7, $1M, fish +10%), Trade Office (Lv 8, $2.5M, orders & ships +20%).
+- Cosmetics wait for the real art style. Storm damage was considered and dropped (feels unfair).
+
 ## Plans
 
 **Phase 1 — Boats & fishing areas** ✅ (see above). Balance after playtesting.

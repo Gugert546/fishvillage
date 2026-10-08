@@ -411,6 +411,10 @@ export type BuildingId =
   | 'lampPost'
   | 'fountain'
   | 'aquarium'
+  | 'townSquare'
+  | 'palm'
+  | 'goldenAnchor'
+  | 'koiPond'
   | 'cannery'
   | 'exportDocks'
   | 'statue'
@@ -487,6 +491,10 @@ export interface BuildingDef {
   shipCansPerWorker?: (level: number) => number;
   /** One-off monument with a town-wide bonus (and a perk point). */
   landmark?: LandmarkEffect;
+  /** Only buildable after buying it from the traveling merchant (one per purchase). */
+  merchantOnly?: boolean;
+  /** Town Square: hosts festivals and the town projects board. */
+  festivals?: boolean;
 }
 
 /** What a landmark does for the whole town. */
@@ -915,6 +923,33 @@ BUILDINGS.push(
 );
 
 BUILDINGS.push({
+  id: 'townSquare',
+  name: 'Town Square',
+  description: 'The heart of town. Host festivals and fund town projects here.',
+  category: 'work',
+  menuTab: 'services',
+  w: 4,
+  h: 4,
+  wall: 0xd6ccc2,
+  roof: 0xe76f51,
+  baseCost: 400,
+  costGrowth: 1,
+  maxCount: 1,
+  maxLevel: 3,
+  unlockLevel: 2,
+  upgradeCost: (l) => Math.round(3_000 * Math.pow(4, l - 1)),
+  happiness: { amount: 8, radius: 4 },
+  festivals: true,
+});
+
+// Merchant-only decorations: bought from the traveling merchant, then placed for free.
+BUILDINGS.push(
+  { ...decor('palm', 'Exotic Palm', 'A souvenir from warmer seas.', 0, 10, 3), maxCount: 0, merchantOnly: true, menuTab: 'special' },
+  { ...decor('goldenAnchor', 'Golden Anchor', 'Polished to a shine.', 0, 12, 3), maxCount: 0, merchantOnly: true, menuTab: 'special' },
+  { ...decor('koiPond', 'Koi Pond', 'Calm water and lazy fish.', 0, 18, 4, 2), maxCount: 0, merchantOnly: true, menuTab: 'special' },
+);
+
+BUILDINGS.push({
   id: 'cannery',
   name: 'Cannery',
   description: 'Cans spare fish from the Icehouse. Cans are worth 3× the fish.',
@@ -1003,8 +1038,9 @@ export const WORLD = {
   /** Real minutes each spell of weather lasts. */
   weatherMinutes: 10,
   weatherChances: { clear: 0.5, cloudy: 0.25, rain: 0.18, storm: 0.07 },
-  /** Rain: this many times as many fish bite. */
+  /** Rain: this many times as many fish bite (more with the Weather Station). */
   rainFish: 1.3,
+  rainFishStation: 1.6,
   /** Storm: boats stay in port, but fresh fish are scarce and sell for more. */
   stormPrice: 0.25,
   /** Night: fish worth at least this much come out more (weight ×), legendaries a bit more. */
@@ -1014,6 +1050,99 @@ export const WORLD = {
   /** Fish of the day sells for this much more. */
   fishOfTheDayBonus: 0.5,
 };
+
+// ------------------------------------------------------------------- Wages
+// Every worker draws a small wage, so staffing a building is a (mild) cost to weigh.
+
+export const WAGES = {
+  /** Wage per worker as a share of what a typical worker at that building's tier earns. */
+  share: 0.15,
+  /** Wages grow this much per building level above 1. */
+  perLevel: 0.15,
+  /** Services (no coins of their own) pay this share of a normal wage. */
+  serviceFactor: 0.6,
+  /** Typical per-worker earnings for buildings that unlock at each town level (index = level). */
+  grade: [0, 6, 6, 8, 10, 14, 20, 25, 30, 35, 40],
+};
+
+// ---------------------------------------------------------------- Festivals
+
+export const FESTIVAL = {
+  /** A festival costs this many minutes of town income (before wages)… */
+  costMinutes: 10,
+  /** …but never less than this. */
+  minCost: 150,
+  /** Minutes a festival lasts, by Town Square level. */
+  minutes: (level: number) => 20 + 10 * level,
+  income: 0.25,
+  happiness: 15,
+  fishPrice: 0.15,
+  moveIn: 2,
+  names: ['Herring Festival', 'Lantern Night', 'Harbor Fair', 'Midsummer Dance', 'Regatta Day', 'Chowder Cook-off', 'Sea Shanty Night'],
+};
+
+// --------------------------------------------------------- Traveling merchant
+
+export const MERCHANT = {
+  unlockLevel: 3,
+  /** The merchant calls once every this many real minutes… */
+  everyMinutes: 90,
+  /** …and stays this long. */
+  staysMinutes: 30,
+  /** Items on offer per visit. */
+  stock: 3,
+};
+
+export type MerchantItemId = 'goldenLure' | 'voucher' | 'goldenNet' | 'ancientChart' | 'palm' | 'goldenAnchor' | 'koiPond';
+/** Single-use boosts that last a number of casts. */
+export type CharmId = 'goldenLure' | 'voucher' | 'goldenNet';
+
+export interface MerchantItem {
+  id: MerchantItemId;
+  name: string;
+  description: string;
+  /** Price at a given town level, given how many were bought before. */
+  price: (townLevel: number, bought: number) => number;
+  /** Casts it lasts (charms). */
+  charges?: number;
+  /** Most you can ever buy (Ancient Charts). */
+  limit?: number;
+}
+
+const scaled = (base: number) => (level: number) => Math.round(base * (1 + 0.6 * (level - 1)));
+
+export const MERCHANT_ITEMS: MerchantItem[] = [
+  { id: 'goldenLure', name: 'Golden Lure', description: "Next cast: the area's legendary is waiting (if your line reaches it)", price: scaled(6_000), charges: 1 },
+  { id: 'voucher', name: 'Market Voucher', description: 'Fish sell for double on your next 5 casts', price: scaled(3_000), charges: 5 },
+  { id: 'goldenNet', name: 'Golden Net', description: '+3 fish on the hook for 10 casts', price: scaled(2_500), charges: 10 },
+  { id: 'ancientChart', name: 'Ancient Chart', description: '+1 perk point, for good', price: (_, bought) => 250_000 * (1 + bought), limit: 3 },
+  { id: 'palm', name: 'Exotic Palm', description: 'Decoration: +10 mood within 3 tiles', price: scaled(1_500) },
+  { id: 'goldenAnchor', name: 'Golden Anchor', description: 'Decoration: +12 mood within 3 tiles', price: scaled(3_000) },
+  { id: 'koiPond', name: 'Koi Pond', description: 'Decoration (2×2): +18 mood within 4 tiles', price: scaled(6_000) },
+];
+
+// ------------------------------------------------------------- Town projects
+// Big builds funded a chunk at a time from the Town Square board, each with a lasting effect.
+
+export type ProjectId = 'weatherStation' | 'breakwater' | 'railway' | 'fishAuction' | 'tradeOffice';
+
+export interface ProjectDef {
+  id: ProjectId;
+  name: string;
+  effect: string;
+  cost: number;
+  unlockLevel: number;
+}
+
+export const PROJECTS: ProjectDef[] = [
+  { id: 'weatherStation', name: 'Weather Station', effect: 'Rain brings 60% more fish (instead of 30%)', cost: 50_000, unlockLevel: 4 },
+  { id: 'breakwater', name: 'Breakwater', effect: 'Boats can sail out in storms', cost: 200_000, unlockLevel: 5 },
+  { id: 'railway', name: 'Railway Station', effect: '+4h offline earnings, move-ins 25% faster', cost: 500_000, unlockLevel: 6 },
+  { id: 'fishAuction', name: 'Fish Auction', effect: 'Fish sell for +10%', cost: 1_000_000, unlockLevel: 7 },
+  { id: 'tradeOffice', name: 'Trade Office', effect: 'Orders and trade ships pay +20%', cost: 2_500_000, unlockLevel: 8 },
+];
+/** Projects are funded in this many equal chunks. */
+export const PROJECT_CHUNKS = 10;
 
 // --------------------------------------------------------------- Canning & trade
 

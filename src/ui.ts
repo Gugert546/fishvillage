@@ -191,7 +191,9 @@ export class TopBar {
     this.coins.setText(formatCoins(state.coins));
     const perMin = incomePerMinute();
     this.income.setX(this.coins.x + this.coins.width + 10);
-    this.income.setText(perMin > 0 ? `+${formatRate(perMin)}/min` : '');
+    // Net of wages; a town of services can cost more than it earns.
+    this.income.setText(perMin > 0 ? `+${formatRate(perMin)}/min` : perMin < 0 ? `−${formatRate(-perMin)}/min` : '');
+    this.income.setColor(perMin < 0 ? '#ff8a8a' : '#8ee88e');
 
     if (!this.showPopulation) return;
     this.population.setText(`${state.residents.length}/${housingCapacity()}`);

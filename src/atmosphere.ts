@@ -4,6 +4,8 @@ import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH, WORLD } from './config';
 import { sfx } from './sound';
 import { COLORS, UI_DEPTH, fixToScreen, makeText, onTap, showToast } from './ui';
+import { projectDone } from './projects';
+import { stormBound } from './town';
 import { darkness, fishOfTheDay, isNight, minutesToDayChange, minutesToWeatherChange, weather, WEATHER_NAMES, type Weather } from './world';
 
 /** Above the world, below the HUD. */
@@ -15,12 +17,12 @@ interface Drop {
   speed: number;
 }
 
-const WEATHER_TIPS: Record<Weather, string> = {
-  clear: 'Clear skies',
-  cloudy: 'Cloudy',
-  rain: `Rain: ${Math.round((WORLD.rainFish - 1) * 100)}% more fish bite`,
-  storm: `Storm: boats stay in port, fish sell +${WORLD.stormPrice * 100}%`,
-};
+function weatherTip(w: Weather): string {
+  if (w === 'clear') return 'Clear skies';
+  if (w === 'cloudy') return 'Cloudy';
+  if (w === 'rain') return `Rain: ${Math.round(((projectDone('weatherStation') ? WORLD.rainFishStation : WORLD.rainFish) - 1) * 100)}% more fish bite`;
+  return `Storm: ${stormBound() ? 'boats stay in port, ' : ''}fish sell +${WORLD.stormPrice * 100}%`;
+}
 
 export class Atmosphere {
   private tint: Phaser.GameObjects.Rectangle;
@@ -53,7 +55,7 @@ export class Atmosphere {
     onTap(badge, () => {
       const w = weather();
       const light = isNight() ? `Night: rare fish bite more · day in ${minutesToDayChange()} min` : `Day · night in ${minutesToDayChange()} min`;
-      showToast(scene, `${WEATHER_TIPS[w]} (${minutesToWeatherChange()} min)`);
+      showToast(scene, `${weatherTip(w)} (${minutesToWeatherChange()} min)`);
       showToast(scene, light);
       showToast(scene, `Fish of the day: ${fishOfTheDay().name} +${WORLD.fishOfTheDayBonus * 100}%`);
     });

@@ -11,6 +11,7 @@ import {
   HOOK_STEER_SPEED,
   HAZARD_INFO,
   WORLD,
+  FESTIVAL,
   LEGENDARY,
   LOGBOOK_PAGE_BONUS,
   PX_PER_M,
@@ -26,7 +27,7 @@ import { fishingStats, save, state } from '../state';
 import { tickEconomy } from '../economy';
 import { questEvent, takeQuestToasts } from '../quests';
 import { hookBonus, marketBonus, sonarRange } from '../services';
-import { boatUnlocked, consumeBait, currentArea, cycleBait, ownsArea, readyBait, sailTo, townLevel } from '../town';
+import { boatUnlocked, consumeBait, currentArea, cycleBait, ownsArea, readyBait, sailTo, stormBound, townLevel } from '../town';
 import { makeDarknessTexture, makeTextures } from '../textures';
 import { completePages, discovered, legendOf, logbookBonus } from '../logbook';
 import { crateCapacity, cratesUsed, storeFish, unstoreFish, wantedFish } from '../crates';
@@ -34,6 +35,9 @@ import { landmarkBonus, perkBonus } from '../perks';
 import { Atmosphere } from '../atmosphere';
 import { sfx } from '../sound';
 import { fishOfTheDay, isNight, weather } from '../world';
+import { festivalBonus } from '../festival';
+import { useCharm } from '../merchant';
+import { projectDone } from '../projects';
 import {
   COLORS,
   Modal,
@@ -135,6 +139,9 @@ export class FishingScene extends Phaser.Scene {
   private sonar = 0;
   /** Fish Market sale bonus for this visit to the dock. */
   private market = 0;
+  /** Merchant charms used on this cast. */
+  private voucher = false;
+  private charmsText!: Phaser.GameObjects.Text;
   private sonarGfx!: Phaser.GameObjects.Graphics;
   private sonarTags: Phaser.GameObjects.Text[] = [];
   private modal?: Modal;
@@ -353,7 +360,7 @@ export class FishingScene extends Phaser.Scene {
 
   private sail(area: AreaDef): void {
     if (area.id === this.area.id) return;
-    if (weather() === 'storm' && area.id !== 'harbor') {
+    if (stormBound() && area.id !== 'harbor') {
       showToast(this, 'Storm! The boats stay in port');
       return;
     }
@@ -384,6 +391,7 @@ export class FishingScene extends Phaser.Scene {
     this.promptText = hud(makeText(this, GAME_WIDTH / 2, SURFACE_Y + 130, 'Tap to cast', 30).setOrigin(0.5));
     this.tweens.add({ targets: this.promptText, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
     this.todayText = hud(makeText(this, GAME_WIDTH / 2, SURFACE_Y + 172, '', 15).setOrigin(0.5).setColor(COLORS.gold));
+    this.charmsText = hud(makeText(this, GAME_WIDTH / 2, SURFACE_Y + 196, '', 13).setOrigin(0.5).setColor('#e7b6f7'));
 
     this.townButton = hud(
       makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 60, 200, 52, 'Town', () => this.scene.start('Town'), COLORS.neutral),
@@ -427,7 +435,7 @@ export class FishingScene extends Phaser.Scene {
         .setOrigin(0, 0)
         .setAlpha(0.75)
         .setWordWrapWidth(GAME_WIDTH - 180);
-      const storm = weather() === 'storm' && area.id !== 'harbor';
+      const storm = stormBound() && area.id !== 'harbor';
       let label = here ? 'Here' : storm ? 'Storm' : 'Sail';
       if (!owned) label = boatUnlocked(area) ? `$${formatCoins(area.cost)}` : `Lv ${area.unlockLevel}`;
       const btn = makeButton(this, GAME_WIDTH - 80, y - 4, 100, 44, label, () => {
@@ -524,6 +532,7 @@ export class FishingScene extends Phaser.Scene {
     this.fish = [];
     this.caught = [];
     this.activeBait = undefined;
+    this.voucher = false;
     this.stunnedUntil = 0;
     this.spawnFish();
     this.spawnHazards();
@@ -536,6 +545,12 @@ export class FishingScene extends Phaser.Scene {
     this.promptText.setVisible(true);
     this.townButton.setVisible(true);
     this.todayText.setText(`Fish of the day: ${fishOfTheDay().name} +${WORLD.fishOfTheDayBonus * 100}%`).setVisible(true);
+    const charms = ([
+      ['Golden Lure', state.charms.goldenLure ?? 0],
+      ['Voucher', state.charms.voucher ?? 0],
+      ['Golden Net', state.charms.goldenNet ?? 0],
+    ] as [string, number][]).filter(([, n]) => n > 0);
+    this.charmsText.setText(charms.map(([name, n]) => `${name} ×${n}`).join(' · ')).setVisible(charms.length > 0);
     this.topBar.setSettingsVisible(true);
     this.hookText.setText('');
     this.refreshHud();
@@ -553,6 +568,11 @@ export class FishingScene extends Phaser.Scene {
     this.promptText.setVisible(false);
     this.townButton.setVisible(false);
     this.todayText.setVisible(false);
+    this.charmsText.setVisible(false);
+    // Merchant charms: the lure was already used to stock the water, the rest apply to this cast.
+    if (this.fish.some((f) => f.type.legendary)) useCharm('goldenLure');
+    this.voucher = useCharm('voucher');
+    if (useCharm('goldenNet')) this.stats.capacity += 3;
     sfx.cast();
     this.topBar.setSettingsVisible(false);
   }
@@ -608,6 +628,11 @@ export class FishingScene extends Phaser.Scene {
     return FISH_PRICE_BONUS_PER_LEVEL * (townLevel() - 1);
   }
 
+  /** A festival in town and the Fish Auction project. */
+  private townPrice(): number {
+    return festivalBonus(FESTIVAL.fishPrice) + (projectDone('fishAuction') ? 0.1 : 0);
+  }
+
   /** Storms make fresh fish scarce. */
   private stormPrice(): number {
     return weather() === 'storm' ? WORLD.stormPrice : 0;
@@ -621,14 +646,15 @@ export class FishingScene extends Phaser.Scene {
   /** Sale price including your house's level bonus, the Fish Market and this cast's bait. */
   private priceOf(type: FishType): number {
     const today = type.id === fishOfTheDay().id ? WORLD.fishOfTheDayBonus : 0;
-    const bonus = this.houseBonus() + this.market + this.perkPrice() + this.stormPrice() + today + logbookBonus(type.area) + (this.activeBait?.sellBonus ?? 0);
-    return Math.round(type.value * (1 + bonus));
+    const bonus = this.houseBonus() + this.market + this.perkPrice() + this.stormPrice() + this.townPrice() + today + logbookBonus(type.area) + (this.activeBait?.sellBonus ?? 0);
+    return Math.round(type.value * (1 + bonus) * (this.voucher ? 2 : 1));
   }
 
   private spawnFish(): void {
     // The bait you're about to use is already in the water, luring fish.
     const bait = readyBait();
-    const density = this.area.density * (bait?.density ?? 1) * (weather() === 'rain' ? WORLD.rainFish : 1);
+    const rain = projectDone('weatherStation') ? WORLD.rainFishStation : WORLD.rainFish;
+    const density = this.area.density * (bait?.density ?? 1) * (weather() === 'rain' ? rain : 1);
     for (let seg = 0; seg < this.area.depth; seg += 10) {
       const n = Math.floor(density + Math.random());
       for (let i = 0; i < n; i++) {
@@ -649,7 +675,8 @@ export class FishingScene extends Phaser.Scene {
   /** Now and then the area's legendary fish is down there, if the line can reach it. */
   private maybeSpawnLegend(): void {
     const type = legendOf(this.area.id);
-    const chance = LEGENDARY.chance + perkBonus('luckyCharm') + landmarkBonus('legendaryChance') + (isNight() ? WORLD.nightLegendaryChance : 0);
+    const lure = (state.charms.goldenLure ?? 0) > 0;
+    const chance = lure ? 1 : LEGENDARY.chance + perkBonus('luckyCharm') + landmarkBonus('legendaryChance') + (isNight() ? WORLD.nightLegendaryChance : 0);
     if (!type || Math.random() >= chance || type.minDepth > this.stats.lineLength) return;
     const depth = Phaser.Math.Between(type.minDepth, Math.min(type.maxDepth, this.stats.lineLength - 5));
     const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
@@ -999,6 +1026,8 @@ export class FishingScene extends Phaser.Scene {
     if (this.market > 0) bonuses.push(`market +${Math.round(this.market * 100)}%`);
     if (this.perkPrice() > 0) bonuses.push(`perks +${Math.round(this.perkPrice() * 100)}%`);
     if (this.stormPrice() > 0) bonuses.push(`storm +${Math.round(this.stormPrice() * 100)}%`);
+    if (this.townPrice() > 0) bonuses.push(`town +${Math.round(this.townPrice() * 100)}%`);
+    if (this.voucher) bonuses.push('voucher ×2');
     const logbook = logbookBonus(this.area.id);
     if (logbook > 0) bonuses.push(`logbook +${Math.round(logbook * 100)}%`);
     if (this.activeBait) bonuses.push(`${this.activeBait.name.toLowerCase()} +${Math.round(this.activeBait.sellBonus * 100)}%`);
