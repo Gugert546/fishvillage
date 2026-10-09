@@ -220,20 +220,20 @@ art. In dev the page reloads by itself when a file is added.
 - **Rods** (Tackle Shop → Rods, switch on the dock): Harpoon (Lv 3, $3k: a Fire button on the way down spears the first fish below, once a cast, without ending the descent), Magnet Rod (Lv 4, $12k: twice the treasure, pulls it toward the hook), Wide Net (Lv 5, $30k: 60% wider catch on the way up).
 - **Combos**: the same species again and again pays 25% of its price per step (×2 = +25%, ×3 = +50%…), paid on the catch screen.
 
-**Phase 7 — Reasons to return**
-- **Seasons** (one per real week): fish availability shifts, harbor ice in winter, a summer festival.
-- **Weekly fishing tournament**: a target species or total weight, with a trophy and perk-point rewards.
-- **Achievements**: milestones with small rewards and a badge wall in your house.
-
-**Phase 8 — A livelier town**
+**Phase 7 — A livelier town**
 - **Tourists**: a Ferry Terminal brings visitors who walk to shops and spend; happiness and landmarks draw more.
 - **Resident requests**: "Ida wants a bench by her home", "Nils wants a job at the Tavern", for small rewards.
 - **Street bonuses**: shops in a row along a road form a "Market Street" with a bonus.
 
-**Phase 9 — Cosmetics** (once the art style has settled)
+**Phase 8 — Cosmetics** (once the art style has settled)
 - Recolour buildings (wall, roof and trim colours from the palette), boat paint jobs, dock skins.
 - Many more decorations: flower boxes, statues, market stalls, seasonal pieces.
 - Unlocked with coins, achievements, tournament rewards and the merchant.
+
+**Phase 9 — Reasons to return**
+- **Seasons** (one per real week): fish availability shifts, harbor ice in winter, a summer festival.
+- **Weekly fishing tournament**: a target species or total weight, with a trophy and perk-point rewards.
+- **Achievements**: milestones with small rewards and a badge wall in your house.
 
 **Phase 10 — Onboarding & clarity** (once the systems have settled)
 - Guided first steps (first cast, sale, building, worker), then hints as each system unlocks.
