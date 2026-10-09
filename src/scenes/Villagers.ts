@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { GRID_X, TILE } from '../config';
+import { BUILDING_BY_ID, GRID_X, TILE } from '../config';
+import { PAL } from '../pixel';
 import { WalkGrid, type Tile } from '../pathfinding';
 import { state, type PlacedBuilding, type Resident } from '../state';
 import { PLAYER_LOOK, lookFor, personShadowTexture, personTexture, type Look } from '../art/people';
@@ -41,17 +42,48 @@ export function tileCenter(t: Tile): { x: number; y: number } {
   return { x: GRID_X + t.col * TILE + TILE / 2, y: -t.row * TILE - TILE / 2 };
 }
 
-type Place = 'home' | 'work' | 'out';
-
-interface Walker {
+/** Someone walking a path of tiles. */
+interface Stroller {
   sprite: Phaser.GameObjects.Container;
   path: Tile[];
   /** Index of the tile currently being walked toward. */
   step: number;
+  phase: number;
+}
+
+/** Moves a walker along its path (faster on roads); returns true once at the end. */
+function stepAlong(w: Stroller, dt: number, grid?: WalkGrid): boolean {
+  if (w.step >= w.path.length) return true;
+  const target = w.path[w.step];
+  const p = tileCenter(target);
+  const speed = grid?.isRoad(target.col, target.row) ? SPEED_ROAD : SPEED_GRASS;
+  const s = w.sprite;
+  const dx = p.x - s.x;
+  const dy = p.y - s.y;
+  const dist = Math.hypot(dx, dy);
+  const stepLen = speed * dt;
+  if (dist <= stepLen) {
+    s.setPosition(p.x, p.y);
+    w.step++;
+  } else {
+    s.setPosition(s.x + (dx / dist) * stepLen, s.y + (dy / dist) * stepLen);
+  }
+  if (Math.abs(dx) > 0.5) s.setScale(dx < 0 ? -1 : 1, 1);
+  // Little walking bob, legs swapping each step
+  w.phase += dt * 14;
+  const body = s.getData('body') as Phaser.GameObjects.Image;
+  const frames = s.getData('frames') as string[];
+  body.y = -Math.round(Math.abs(Math.sin(w.phase)) * 1.5);
+  body.setTexture(frames[Math.floor(w.phase / Math.PI) % 2]);
+  return false;
+}
+
+type Place = 'home' | 'work' | 'out';
+
+interface Walker extends Stroller {
   dest: Place;
   /** While > now (ms), the walker stands still (lingering on a stroll). */
   waitUntil: number;
-  phase: number;
 }
 
 /** Residents walking between home, work and the occasional stroll. */
@@ -165,31 +197,7 @@ export class Villagers {
 
   private move(id: number, w: Walker, dt: number, now: number): void {
     if (w.waitUntil > now) return;
-    if (w.step >= w.path.length) {
-      this.arrive(id, w, now);
-      return;
-    }
-    const target = w.path[w.step];
-    const p = tileCenter(target);
-    const speed = this.grid?.isRoad(target.col, target.row) ? SPEED_ROAD : SPEED_GRASS;
-    const s = w.sprite;
-    const dx = p.x - s.x;
-    const dy = p.y - s.y;
-    const dist = Math.hypot(dx, dy);
-    const stepLen = speed * dt;
-    if (dist <= stepLen) {
-      s.setPosition(p.x, p.y);
-      w.step++;
-    } else {
-      s.setPosition(s.x + (dx / dist) * stepLen, s.y + (dy / dist) * stepLen);
-    }
-    if (Math.abs(dx) > 0.5) s.setScale(dx < 0 ? -1 : 1, 1);
-    // Little walking bob, legs swapping each step
-    w.phase += dt * 14;
-    const body = s.getData('body') as Phaser.GameObjects.Image;
-    const frames = s.getData('frames') as string[];
-    body.y = -Math.round(Math.abs(Math.sin(w.phase)) * 1.5);
-    body.setTexture(frames[Math.floor(w.phase / Math.PI) % 2]);
+    if (stepAlong(w, dt, this.grid)) this.arrive(id, w, now);
   }
 
   private arrive(id: number, w: Walker, now: number): void {
@@ -210,6 +218,105 @@ export class Villagers {
     this.place.set(id, w.dest === 'out' ? 'home' : w.dest);
     this.nextTrip.set(id, now + (STAY_MIN + Math.random() * (STAY_MAX - STAY_MIN)) * 1000);
     this.walkers.delete(id);
+    const sprite = w.sprite;
+    this.scene.tweens.add({ targets: sprite, alpha: 0, duration: 250, onComplete: () => sprite.destroy() });
+  }
+}
+
+// ----------------------------------------------------------------- Tourists
+
+const MAX_TOURISTS = 6;
+const TOURIST_EVERY_MS = 2500;
+const TOURIST_SHIRTS = [PAL.cyan, PAL.yellow, PAL.pink, PAL.lime, PAL.salmon];
+
+interface Tourist extends Stroller {
+  /** Heading back to the ferry. */
+  leaving: boolean;
+  waitUntil: number;
+}
+
+/**
+ * Visitors off the ferry: they walk from the terminal to a shop, landmark or the square, have a
+ * look around, then head back to the boat. Bright shirts and white sun hats.
+ */
+export class Tourists {
+  private walkers: Tourist[] = [];
+  private grid?: WalkGrid;
+  private gridKey = '';
+  private lastSpawn = 0;
+  private count = 0;
+
+  constructor(private scene: Phaser.Scene) {}
+
+  update(deltaMs: number, now: number, ferry: PlacedBuilding | undefined, tourists: number): void {
+    if (!ferry) tourists = 0;
+    if (ferry && tourists > 0 && this.walkers.length < Math.min(MAX_TOURISTS, tourists) && now - this.lastSpawn > TOURIST_EVERY_MS) {
+      this.lastSpawn = now;
+      this.spawn(ferry);
+    }
+    for (const w of [...this.walkers]) {
+      if (w.waitUntil > now) continue;
+      if (!stepAlong(w, deltaMs / 1000, this.grid)) continue;
+      if (w.leaving || !ferry) this.remove(w);
+      else this.turnBack(w, ferry, now);
+    }
+  }
+
+  destroy(): void {
+    for (const w of this.walkers) w.sprite.destroy();
+    this.walkers = [];
+  }
+
+  private refreshGrid(): WalkGrid {
+    const key = `${state.expansions}|` + state.buildings.map((b) => `${b.id}:${b.col}:${b.row}`).join(',');
+    if (key !== this.gridKey || !this.grid) {
+      this.gridKey = key;
+      this.grid = new WalkGrid();
+    }
+    return this.grid;
+  }
+
+  /** Somewhere worth seeing: shops, landmarks, the square, trophies, the aquarium. */
+  private sight(): PlacedBuilding | undefined {
+    const spots = state.buildings.filter((b) => {
+      const def = BUILDING_BY_ID[b.type];
+      return def.incomePerWorker || def.speciesIncomePerWorker || def.landmark || def.festivals || def.trophy || def.id === 'fountain';
+    });
+    return spots[Math.floor(Math.random() * spots.length)];
+  }
+
+  private spawn(ferry: PlacedBuilding): void {
+    const grid = this.refreshGrid();
+    const sight = this.sight();
+    const from = grid.doorOf(ferry);
+    const to = sight && grid.doorOf(sight);
+    const path = from && to ? grid.findPath(from, to) : undefined;
+    if (!path || path.length < 2) return;
+    const id = this.count++;
+    const look = { ...lookFor(id + 7), shirt: TOURIST_SHIRTS[id % TOURIST_SHIRTS.length], cap: PAL.white };
+    const sprite = makeFigure(this.scene, look).setDepth(DEPTH).setAlpha(0);
+    const start = tileCenter(path[0]);
+    sprite.setPosition(start.x, start.y);
+    this.scene.tweens.add({ targets: sprite, alpha: 1, duration: 250 });
+    this.walkers.push({ sprite, path, step: 1, phase: Math.random() * 10, leaving: false, waitUntil: 0 });
+  }
+
+  private turnBack(w: Tourist, ferry: PlacedBuilding, now: number): void {
+    const grid = this.refreshGrid();
+    const home = grid.doorOf(ferry);
+    const path = home ? grid.findPath(w.path[w.path.length - 1], home) : undefined;
+    if (!path || path.length < 2) {
+      this.remove(w);
+      return;
+    }
+    w.path = path;
+    w.step = 1;
+    w.leaving = true;
+    w.waitUntil = now + 2000 + Math.random() * 4000;
+  }
+
+  private remove(w: Tourist): void {
+    this.walkers = this.walkers.filter((x) => x !== w);
     const sprite = w.sprite;
     this.scene.tweens.add({ targets: sprite, alpha: 0, duration: 250, onComplete: () => sprite.destroy() });
   }

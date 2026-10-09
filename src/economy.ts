@@ -5,6 +5,7 @@ import { FESTIVAL, OFFLINE_RATE } from './config';
 import { festivalBonus } from './festival';
 import { moveInMultiplier, totalIncome, totalWages, townHappiness } from './happiness';
 import { checkMerchant } from './merchant';
+import { checkRequests, tickRequests } from './requests';
 import { projectDone } from './projects';
 import { tickOrders } from './crates';
 import { checkPerkPoints, perkBonus } from './perks';
@@ -47,6 +48,7 @@ export function tickEconomy(): void {
   const arrived = tickPopulation(effective * moveInMultiplier(townHappiness() ?? 50) * moveIn);
   tickOrders(effective);
   tickTrade(effective);
+  tickRequests(effective);
 
   if (away) {
     pendingOffline.coins += Math.max(0, earned);
@@ -59,6 +61,7 @@ export function tickEconomy(): void {
     checkQuests();
     checkPerkPoints();
     checkMerchant();
+    checkRequests();
     lastQuestCheck = now;
   }
 

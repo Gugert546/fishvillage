@@ -198,6 +198,18 @@ export function rowboatTexture(scene: Phaser.Scene): string {
   }).key;
 }
 
+/** The tourist ferry seen from above: white with a blue stripe, centred on (0, 0). */
+export function ferryBoatTexture(scene: Phaser.Scene): string {
+  return pixTexture(scene, 'ferry-boat', -16, -9, 32, 18, (p) => {
+    p.fillStyle(PAL.white).fillEllipse(0, 0, 30, 14);
+    p.fillStyle(PAL.ocean).fillRect(-12, 3, 24, 2);
+    p.fillStyle(PAL.cloud).fillRect(-8, -4, 14, 7);
+    p.fillStyle(PAL.sky).fillRect(-6, -3, 2, 2).fillRect(-2, -3, 2, 2).fillRect(2, -3, 2, 2);
+    p.fillStyle(PAL.red).fillRect(7, -2, 3, 3);
+    p.outline();
+  }).key;
+}
+
 /** A little fishing boat seen from above, bow to the right, centred on (0, 0). */
 export function fleetBoatTexture(scene: Phaser.Scene): string {
   return pixTexture(scene, 'fleet-boat', -14, -8, 28, 16, (p) => {

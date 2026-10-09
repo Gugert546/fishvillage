@@ -311,6 +311,25 @@ const ART: Partial<Record<BuildingId, (a: Art, W: number, H: number, v: number) 
     a.footing(11, 28, 20, 2);
   },
 
+  ferryTerminal(a) {
+    a.shadow(2, 29, 60);
+    // Waiting hall with a big clock and a ticket window
+    a.gable(1, 3, 40, 11, WALL.white, ROOF.slate, PAL.white);
+    a.wall(3, 14, 36, 14, WALL.white, 'plain');
+    a.oval(18, 6, 5, 5, PAL.white);
+    a.d(20, 7, PAL.ink).d(20, 8, PAL.ink).d(21, 8, PAL.ink);
+    a.win(6, 17, 6, 5).win(30, 17, 6, 5);
+    a.door(17, 18, 8, 10, PAL.ocean);
+    a.sign(14, 15, 14, 3, PAL.ocean, PAL.white);
+    // Gangway and a flagpole
+    a.r(42, 22, 20, 4, PAL.tan);
+    for (let x = 44; x < 62; x += 4) a.vl(x, 22, 4, PAL.clay);
+    a.hl(42, 21, 20, PAL.brown);
+    a.vl(56, 4, 18, PAL.bark);
+    a.r(57, 4, 5, 3, PAL.red).hl(57, 5, 5, PAL.white);
+    a.footing(2, 28, 60, 2);
+  },
+
   fishingWharf(a) {
     a.shadow(2, 29, 60);
     // Boathouse with a big water door

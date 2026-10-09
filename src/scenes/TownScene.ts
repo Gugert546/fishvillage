@@ -17,6 +17,7 @@ import {
   GAME_HEIGHT,
   ORDERS,
   QUESTS,
+  REQUESTS,
   GAME_WIDTH,
   GRID_X,
   ROWS_PER_EXPANSION,
@@ -38,6 +39,7 @@ import {
   homeMood,
   incomeMultiplier,
   incomePerWorkerOf,
+  streetBonus,
   wagePerWorker,
   touchesRoad,
   workplaceIncome,
@@ -60,11 +62,11 @@ import { state, type PlacedBuilding, type Resident } from '../state';
 import { makeTextures } from '../textures';
 import { addSprite, hasSprite, preloadSprites } from '../sprites';
 import { CHIMNEYS, LIGHTHOUSE_LAMP, buildingTexture, festivalTexture, millWheelTexture, squareTexture } from '../art/buildings';
-import { FOUNTAIN, LAMP_GLOW, decorTexture, fleetBoatTexture, jettyTexture, plinthTexture, rowboatTexture, tileIconTexture } from '../art/decor';
+import { FOUNTAIN, LAMP_GLOW, decorTexture, ferryBoatTexture, fleetBoatTexture, jettyTexture, plinthTexture, rowboatTexture, tileIconTexture } from '../art/decor';
 import { canalMouthTexture, groundImage, shoreImage, tileTexture } from '../art/ground';
 import { badgeTexture, pipTexture } from '../art/icons';
 import { PAL, pixImage } from '../pixel';
-import { Villagers, makePerson, makePlayer } from './Villagers';
+import { Tourists, Villagers, makePerson, makePlayer } from './Villagers';
 import { isWorking, touchesWater, wateredTiles } from '../water';
 import { speciesCount } from '../logbook';
 import { branchSpent, buyPerk, canBuyPerk, perkOpen, perkRank, pointSources, pointsEarned, pointsFree, resetPerks } from '../perks';
@@ -73,6 +75,8 @@ import { ATMOSPHERE_DEPTH, Atmosphere } from '../atmosphere';
 import { festivalActive, festivalCost, festivalMinutesLeft, hostFestival } from '../festival';
 import { boughtThisVisit, buyItem, itemPrice, merchantHere, merchantMinutes, merchantStock } from '../merchant';
 import { stockValue } from '../market';
+import { attraction, ferry, touristCount, tourismIncome } from '../tourism';
+import { describeRequest, dismissRequest, requestHint, requestHomes, requestsUnlocked } from '../requests';
 import { fundProject, nextChunk, projectFunded, projectUnlocked } from '../projects';
 import { sfx } from '../sound';
 import {
@@ -275,6 +279,11 @@ export class TownScene extends Phaser.Scene {
   private questBadge!: Phaser.GameObjects.Container;
   private atmosphere!: Atmosphere;
   private merchantBoat?: Phaser.GameObjects.Container;
+  private tourists!: Tourists;
+  /** Tourists in town (refreshed twice a second; it needs the whole town's happiness). */
+  private touristsNow = 0;
+  /** "!" speech bubbles over homes whose residents have a request. */
+  private requestBubbles = new Map<number, Phaser.GameObjects.Container>();
   /** The Fishing Wharf's boats, and their route along the canals out to sea. */
   private fleetBoats: Phaser.GameObjects.Image[] = [];
   private fleetRoute: { x: number; y: number }[] = [];
@@ -329,6 +338,8 @@ export class TownScene extends Phaser.Scene {
     this.time.addEvent({ delay: STATUS_CHECK_MS, loop: true, callback: () => this.refreshBuildingViews() });
     this.time.addEvent({ delay: SMOKE_MS, loop: true, callback: () => this.puffSmoke() });
     this.villagers = new Villagers(this);
+    this.tourists = new Tourists(this);
+    this.requestBubbles = new Map();
     this.atmosphere = new Atmosphere(this);
     // Lamps and windows glow through the night tint.
     this.nightLights = this.add.graphics().setDepth(ATMOSPHERE_DEPTH + 0.5).setBlendMode(Phaser.BlendModes.ADD);
@@ -359,6 +370,7 @@ export class TownScene extends Phaser.Scene {
     tickEconomy();
     this.atmosphere.update(dt, time);
     this.villagers.update(Math.min(deltaMs, 100), time);
+    this.tourists.update(Math.min(deltaMs, 100), time, ferry(), this.touristsNow);
     this.topBar.update();
     this.showArrivals();
     for (const t of takeQuestToasts()) showToast(this, t);
@@ -566,8 +578,63 @@ export class TownScene extends Phaser.Scene {
       if (status?.keeper !== undefined && !status.dry) this.tweens.add({ targets: wheel, angle: 360, duration: 4000, repeat: -1 });
       parts.push(wheel);
     }
+    if (def.tourists && placed) {
+      const ferryBoat = this.ferryBeside(placed);
+      if (ferryBoat) parts.unshift(ferryBoat);
+    }
     if (status) parts.push(...this.statusParts(def, status, { x: 10, y: 10, keeper: true }));
     return this.add.container(0, 0, parts);
+  }
+
+  /** The ferry moored on a canal tile beside the terminal (in the building's own coordinates). */
+  private ferryBeside(b: PlacedBuilding): Phaser.GameObjects.Image | undefined {
+    const def = defOf(b);
+    const wet = wateredTiles();
+    for (let c = b.col - 1; c <= b.col + def.w; c++) {
+      for (let r = b.row - 1; r <= b.row + def.h; r++) {
+        const side = c < b.col || c >= b.col + def.w;
+        const end = r < b.row || r >= b.row + def.h;
+        if (side === end || !wet.has(`${c},${r}`)) continue; // skip corners and the footprint itself
+        const x = (c - b.col) * TILE + TILE / 2;
+        const y = (b.row + def.h - 1 - r) * TILE + TILE / 2;
+        const boat = this.add.image(x, y, ferryBoatTexture(this)).setAngle(side ? 90 : 0);
+        this.tweens.add({ targets: boat, y: y + 2, duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        return boat;
+      }
+    }
+    return undefined;
+  }
+
+  /** A "!" bubble over each home whose resident has a request; tap one to see the requests. */
+  private refreshRequestBubbles(): void {
+    const homes = requestHomes();
+    for (const [id, bubble] of this.requestBubbles) {
+      if (!homes.has(id) || !state.buildings.some((b) => b.id === id)) {
+        bubble.destroy();
+        this.requestBubbles.delete(id);
+      }
+    }
+    for (const id of homes) {
+      const home = state.buildings.find((b) => b.id === id);
+      if (!home) continue;
+      const def = defOf(home);
+      const pos = tileToWorld(home.col, home.row, def.h);
+      const x = pos.x + (def.w * TILE) / 2;
+      const y = pos.y - 14;
+      let bubble = this.requestBubbles.get(id);
+      if (!bubble) {
+        const g = this.add.graphics();
+        g.fillStyle(0x181425).fillRect(-11, -11, 22, 20).fillTriangle(-4, 8, 4, 8, -6, 14);
+        g.fillStyle(0xffffff).fillRect(-9, -9, 18, 16).fillTriangle(-3, 6, 3, 6, -5, 11);
+        const mark = makeText(this, 0, -2, '!', 16).setOrigin(0.5).setColor('#e43b44');
+        bubble = this.add.container(x, y, [g, mark]).setDepth(40).setSize(26, 26);
+        onTap(bubble, () => {
+          if (!this.modal) this.openRequests();
+        });
+        this.tweens.add({ targets: bubble, y: y - 3, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        this.requestBubbles.set(id, bubble);
+      }
+    }
   }
 
   /**
@@ -716,6 +783,8 @@ export class TownScene extends Phaser.Scene {
   /** Redraws any building whose level or staffing changed, and drops views of removed ones. */
   private refreshBuildingViews(): void {
     if (this.nightLights) this.drawNightLights();
+    this.touristsNow = touristCount();
+    this.refreshRequestBubbles();
     this.refreshMerchantBoat();
     this.fleetRoute = this.findFleetRoute();
     const counts = workerCounts();
@@ -1374,15 +1443,16 @@ export class TownScene extends Phaser.Scene {
     this.questBadgeText.setText(`${ready}`);
   }
 
-  /** Quests / Orders tabs at the top of the board. */
-  private boardTabs(m: Modal, current: 'quests' | 'orders'): void {
-    const tabs: ['quests' | 'orders', string][] = [['quests', 'Quests'], ['orders', 'Orders']];
+  /** Quests / Orders / Requests tabs at the top of the board. */
+  private boardTabs(m: Modal, current: 'quests' | 'orders' | 'requests'): void {
+    const tabs: ['quests' | 'orders' | 'requests', string][] = [['quests', 'Quests'], ['orders', 'Orders'], ['requests', 'Requests']];
     tabs.forEach(([id, label], i) => {
-      const n = id === 'quests' ? state.quests.filter((q) => q.done).length : readyOrders();
-      const btn = makeButton(this, GAME_WIDTH / 2 + (i - 0.5) * 140, m.top + 34, 130, 40, n > 0 ? `${label} (${n})` : label, () => {
+      const n = id === 'quests' ? state.quests.filter((q) => q.done).length : id === 'orders' ? readyOrders() : state.requests.length;
+      const btn = makeButton(this, GAME_WIDTH / 2 + (i - 1) * 128, m.top + 34, 122, 40, n > 0 ? `${label} ${n}` : label, () => {
         if (id === 'quests') this.openQuests();
-        else this.openOrders();
-      }, COLORS.primary, 17);
+        else if (id === 'orders') this.openOrders();
+        else this.openRequests();
+      }, COLORS.primary, 16);
       btn.setEnabledLook(id === current, COLORS.primary);
       m.add(btn);
     });
@@ -1441,6 +1511,35 @@ export class TownScene extends Phaser.Scene {
         swap.setEnabledLook(canAfford(cost), COLORS.neutral);
         m.add(swap);
       }
+      y += cardH;
+    }
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral));
+  }
+
+  /** Residents' wishes: fulfil one and they're happier for good (they check by themselves). */
+  private openRequests(): void {
+    this.leaveModes();
+    const cardH = 110;
+    const m = (this.modal = new Modal(this, 170 + Math.max(1, state.requests.length) * cardH));
+    this.boardTabs(m, 'requests');
+    const sub = requestsUnlocked()
+      ? `Fulfil a wish for coins and +${REQUESTS.cheer} happiness`
+      : `Requests start at house level ${REQUESTS.unlockLevel}`;
+    m.text(GAME_WIDTH / 2, m.top + 74, sub, 16).setAlpha(0.8).setWordWrapWidth(GAME_WIDTH - 70).setAlign('center');
+    if (requestsUnlocked() && state.requests.length === 0) m.text(GAME_WIDTH / 2, m.top + 130, 'Nobody needs anything right now.', 16).setAlpha(0.8);
+    let y = m.top + 112;
+    for (const q of state.requests) {
+      m.add(this.add.rectangle(GAME_WIDTH / 2, y + cardH / 2 - 4, GAME_WIDTH - 64, cardH - 12, 0x264b73));
+      m.text(46, y + 18, describeRequest(q), 16, 0).setWordWrapWidth(GAME_WIDTH - 100);
+      m.text(46, y + 48, requestHint(q), 16, 0).setAlpha(0.75).setWordWrapWidth(GAME_WIDTH - 200);
+      m.text(46, y + 78, `Reward: $${formatCoins(q.coins)}`, 16, 0).setColor(COLORS.gold);
+      m.add(
+        makeButton(this, GAME_WIDTH - 86, y + 76, 100, 36, 'Dismiss', () => {
+          dismissRequest(q);
+          this.refreshRequestBubbles();
+          this.openRequests();
+        }, COLORS.neutral, 16),
+      );
       y += cardH;
     }
     m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => this.closeModal(), COLORS.neutral));
@@ -1607,7 +1706,8 @@ export class TownScene extends Phaser.Scene {
   private openBuildMenu(tab = this.buildTab, page = 0): void {
     this.closeModal();
     this.buildTab = tab;
-    const all = BUILDINGS.filter((d) => tabOf(d) === tab);
+    // In the order they unlock (stable, so same-level entries keep their usual order).
+    const all = BUILDINGS.filter((d) => tabOf(d) === tab).sort((a, b) => (a.unlockLevel ?? 1) - (b.unlockLevel ?? 1));
     const rowH = 112;
     // Page the list when a tab has more rows than fit on short screens.
     const fit = Math.max(1, Math.floor((GAME_HEIGHT - 110 - 230) / rowH));
@@ -1702,6 +1802,7 @@ export class TownScene extends Phaser.Scene {
     if (def.crateCapacity) return `${size} · +${def.crateCapacity(1)} fish storage`;
     if (def.cansPerWorker) return `${jobText} · ${def.cansPerWorker(1)} cans/min each`;
     if (def.fleet) return `${jobText} · fishing boats`;
+    if (def.tourists) return `${jobText} · up to ${def.tourists(1)} tourists`;
     if (def.shipCansPerWorker) return `${jobText} · ships take ${def.shipCansPerWorker(1)} cans each`;
     if (def.speciesIncomePerWorker) return `${jobText} · $${fmtRate(def.speciesIncomePerWorker(1))}/min per species`;
     return pay > 0 ? `${size} · ${jobText} · $${fmtRate(pay)}/min each` : `${size} · ${jobText}`;
@@ -1818,6 +1919,8 @@ export class TownScene extends Phaser.Scene {
         if (mill > 0) extras.push(`mill +${Math.round(mill * 100)}%`);
         const orders = deliveryBoost(b);
         if (orders > 0) extras.push(`orders +${Math.round(orders * 100)}%`);
+        const street = streetBonus(b);
+        if (street > 0) extras.push(`street +${Math.round(street * 100)}%`);
         const boost = def.standBoostPerWorker?.(b.level);
         const service = this.serviceStatus(b, workers.length);
         if (!isWorking(b)) {
@@ -2224,6 +2327,9 @@ export class TownScene extends Phaser.Scene {
     if (def.cansPerWorker) {
       if (holdCapacity() === 0) return `${state.cans} cans · needs a Fishing Wharf to bring in fish`;
       return `${state.cans}/${TRADE.maxCans} cans ($${formatCoins(state.cansValue)}) · ${fmtRate(canningRate())}/min · ${holdCount()} fish waiting at the wharf`;
+    }
+    if (def.tourists) {
+      return `${this.touristsNow} tourists · spending $${fmtRate(tourismIncome())}/min · appeal x${attraction().toFixed(1)}`;
     }
     if (def.fleet) {
       const f = fleet();

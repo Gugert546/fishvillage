@@ -71,10 +71,11 @@ export function shopOpen(type: BuildingId): boolean {
 }
 
 /**
- * Distribute residents over workplaces: priority workplaces first, then oldest first, each up to
- * its staff target. Residents keep their current job when it's still wanted, so jobs don't shuffle.
- * Residents whose job the player picked by hand ("pinned") are never moved; they fill their
- * workplace's slots first and everyone else works around them.
+ * Fill open job slots without moving anyone: a resident who has a job keeps it until the player
+ * moves them. A job only ends when its workplace is gone or has more workers than its staff
+ * setting allows (the player lowered it); then hand-picked ("pinned") workers stay and the
+ * newest auto-assigned ones leave first. Open slots go to the unemployed, priority workplaces
+ * first. Residents the player set to "No job" stay unemployed.
  */
 export function assignJobs(): void {
   const workplaces = state.buildings
@@ -82,40 +83,29 @@ export function assignJobs(): void {
     .sort((a, b) => Number(!!b.priority) - Number(!!a.priority) || a.id - b.id);
   const workplaceIds = new Set(workplaces.map((w) => w.id));
 
-  // Pinned residents whose workplace is gone go back to auto.
-  const pinnedAt = new Map<number, number>();
+  // Jobs at workplaces that are gone end (and go back to auto).
   for (const r of state.residents) {
-    if (!r.pinned || r.job === null) continue;
-    if (!workplaceIds.has(r.job)) {
-      r.pinned = false;
+    if (r.job !== null && !workplaceIds.has(r.job)) {
       r.job = null;
-    } else {
-      pinnedAt.set(r.job, (pinnedAt.get(r.job) ?? 0) + 1);
+      r.pinned = false;
     }
   }
 
-  let available = state.residents.filter((r) => !r.pinned).length;
-  const wanted = new Map<number, number>();
+  // Over the staff setting: auto-assigned workers leave first, newest first.
   for (const w of workplaces) {
-    const n = Math.min(Math.max(0, staffTarget(w) - (pinnedAt.get(w.id) ?? 0)), available);
-    wanted.set(w.id, n);
-    available -= n;
-  }
-
-  const filled = new Map<number, number>();
-  for (const r of state.residents) {
-    if (r.job === null || r.pinned) continue;
-    const want = wanted.get(r.job);
-    const have = filled.get(r.job) ?? 0;
-    if (want === undefined || have >= want) r.job = null;
-    else filled.set(r.job, have + 1);
+    const here = state.residents
+      .filter((r) => r.job === w.id)
+      .sort((a, b) => Number(!!a.pinned) - Number(!!b.pinned) || b.id - a.id);
+    for (const r of here.slice(0, Math.max(0, here.length - staffTarget(w)))) {
+      r.job = null;
+      r.pinned = false;
+    }
   }
 
   const unemployed = state.residents.filter((r) => r.job === null && !r.pinned);
   for (const w of workplaces) {
-    let have = filled.get(w.id) ?? 0;
-    const want = wanted.get(w.id) ?? 0;
-    while (have < want && unemployed.length > 0) {
+    let have = state.residents.filter((r) => r.job === w.id).length;
+    while (have < staffTarget(w) && unemployed.length > 0) {
       unemployed.shift()!.job = w.id;
       have++;
     }

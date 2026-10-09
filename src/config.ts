@@ -493,6 +493,7 @@ export type BuildingId =
   | 'koiPond'
   | 'cannery'
   | 'fishingWharf'
+  | 'ferryTerminal'
   | 'exportDocks'
   | 'statue'
   | 'clockTower'
@@ -562,6 +563,8 @@ export interface BuildingDef {
   trophy?: string;
   /** Icehouse: extra fish storage at a given level. */
   crateCapacity?: (level: number) => number;
+  /** Ferry Terminal: tourists the ferry brings to town at a given level (when fully staffed). */
+  tourists?: (level: number) => number;
   /** Fishing Wharf: fish one boat brings back per trip, and how many fish the hold keeps. */
   fleet?: { haul: (level: number) => number; hold: (level: number) => number };
   /** Cannery: fish (from wharf holds) each worker cans per minute. */
@@ -1029,6 +1032,27 @@ BUILDINGS.push(
 );
 
 BUILDINGS.push({
+  id: 'ferryTerminal',
+  name: 'Ferry Terminal',
+  description: 'A ferry brings tourists who stroll the town and spend at the shops.',
+  category: 'work',
+  menuTab: 'services',
+  w: 4,
+  h: 2,
+  wall: 0xe9f5fb,
+  roof: 0x124e89,
+  baseCost: 6_000,
+  costGrowth: 1,
+  maxCount: 1,
+  maxLevel: 3,
+  unlockLevel: 4,
+  needsWater: true,
+  upgradeCost: (l) => Math.round(8_000 * Math.pow(2.5, l - 1)),
+  jobs: (l) => 1 + l,
+  tourists: (l) => 3 + 3 * l,
+});
+
+BUILDINGS.push({
   id: 'fishingWharf',
   name: 'Fishing Wharf',
   description: 'Fishermen sail little boats out along the canals. Their catch feeds the Cannery.',
@@ -1149,6 +1173,51 @@ export const WORLD = {
   nightLegendaryChance: 0.05,
   /** Fish of the day sells for this much more. */
   fishOfTheDayBonus: 0.5,
+};
+
+// ------------------------------------------------------------------- Tourism
+// The Ferry Terminal brings visitors; how many depends on its staff and on how lovely the town is.
+
+export const TOURISM = {
+  /** Coins a tourist spends per minute: base + this × town level. */
+  spendBase: 1,
+  spendPerLevel: 0.5,
+  /** Attraction (× tourists): 1 at 50% happiness, ±1 between 0% and 100%… */
+  happinessWeight: 1,
+  /** …plus these for what there is to see. */
+  perLandmark: 0.15,
+  perTrophy: 0.05,
+  aquarium: 0.15,
+  /** A festival doubles the crowd. */
+  festival: 2,
+  maxAttraction: 3,
+};
+
+// --------------------------------------------------------------- Resident requests
+
+export const REQUESTS = {
+  unlockLevel: 2,
+  /** Requests open at once. */
+  max: 2,
+  /** Seconds between new requests. */
+  everySeconds: 240,
+  /** Coins for a fulfilled request: this × town level. */
+  rewardPerLevel: 40,
+  /** Lasting happiness for the resident each time (up to `maxCheer`). */
+  cheer: 4,
+  maxCheer: 12,
+  /** "Near home" means within this many tiles. */
+  nearTiles: 3,
+};
+
+// --------------------------------------------------------------- Market streets
+
+export const STREET = {
+  /** Earning shops by a road get this much more per other road-side shop within `radius` tiles… */
+  perShop: 0.05,
+  radius: 3,
+  /** …up to this. */
+  max: 0.25,
 };
 
 // ------------------------------------------------------------------- Wages

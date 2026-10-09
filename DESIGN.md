@@ -49,6 +49,8 @@ Bought in packs of 5 at the Bait Shop (needs a shopkeeper); one is used per cast
 
 ## Town
 
+The Build menu lists each tab's buildings in the order they unlock.
+
 - Fixed-width grid (6–8 columns), scrolls vertically only; rows unlock as the town levels up.
 - Free placement; buildings 1×1 and 2×2.
 - Normal mode: drag scrolls, tap building to inspect/upgrade. Build mode: ghost preview (green/red), tap to place.
@@ -116,7 +118,7 @@ Kinds: catch N of a fish · fill the hook in one cast · earn $N from fishing ·
 
 - **Housing:** Cottage (2×2 tiles, 2 residents), Apartment (4×4, 6 residents, more per level). Roads and decorations will be 1×1. Residents move in gradually while there's free housing; higher happiness = faster move-ins.
 - **Jobs:** workplaces have job slots that grow with level. No workers = no income; each worker adds a share. Tackle/Bait Shops are **closed** (no gear sales) without a shopkeeper.
-- **Assignment:** automatic, with manual tweaks per workplace: desired staff `[−][+]` (0..slots) and a ⭐ priority flag that gets filled first.
+- **Assignment:** automatic, but jobs stick: a resident who has a job keeps it until you move them. Open slots go to the unemployed (⭐ priority workplaces first). A job only ends if its building is sold or you lower its staff `[−][+]` (the newest auto-hired leave first).
 - **Residents list:** tap the population counter in the top bar. Shows name, job, home and mood; tap a resident to pick their job (Auto / No job / a workplace). Hand-picked jobs are pinned: auto-assignment works around them and may bump auto workers to make room.
 - **Happiness (0–100%):** per house, averaged over residents. Sources: decorations with an area of effect (Flower bed, Tree, Bench, Fountain…), adjacent road, employment. Range preview while placing.
 - **Roads:** bonus only, never required. Villagers walk along them.
@@ -220,10 +222,10 @@ art. In dev the page reloads by itself when a file is added.
 - **Rods** (Tackle Shop → Rods, switch on the dock): Harpoon (Lv 3, $3k: a Fire button on the way down spears the first fish below, once a cast, without ending the descent), Magnet Rod (Lv 4, $12k: twice the treasure, pulls it toward the hook), Wide Net (Lv 5, $30k: 60% wider catch on the way up).
 - **Combos**: the same species again and again pays 25% of its price per step (×2 = +25%, ×3 = +50%…), paid on the catch screen.
 
-**Phase 7 — A livelier town**
-- **Tourists**: a Ferry Terminal brings visitors who walk to shops and spend; happiness and landmarks draw more.
-- **Resident requests**: "Ida wants a bench by her home", "Nils wants a job at the Tavern", for small rewards.
-- **Street bonuses**: shops in a row along a road form a "Market Street" with a bonus.
+**Phase 7 — A livelier town** ✅ (tune from playtests)
+- **Tourists**: the Ferry Terminal (Lv 4, waterside, 2–4 jobs, a ferry moored beside it) brings 6/9/12 tourists when fully staffed, times the town's **appeal** (×1 at 50% happiness, 0–2 from happiness, +0.15 per landmark, +0.05 per trophy, +0.15 with an Aquarium, ×2 during a festival; capped at ×3). Each spends $1 + $0.5 × town level per minute; it's steady income, so it counts while you're away. Visitors in bright shirts and sun hats walk from the terminal to shops, landmarks and the square and back.
+- **Resident requests** (Lv 2, up to 2 open, a new one every ~4 min): a decoration within 3 tiles of their home, a road by the door, or a job at a certain building. A "!" bubble shows over their home; the Quests board has a Requests tab. They complete by themselves: $40 × town level and +4 happiness for that resident for good (up to +12). Requests can be dismissed.
+- **Market streets**: an earning shop next to a road gets +5% for every other road-side earning shop within 3 tiles (up to +25%), shown as "street" in its panel.
 
 **Phase 8 — Cosmetics** (once the art style has settled)
 - Recolour buildings (wall, roof and trim colours from the palette), boat paint jobs, dock skins.

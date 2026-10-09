@@ -1,6 +1,7 @@
 // Happiness: how residents feel about where they live, and what that does for the town.
 
-import { FESTIVAL, HAPPINESS, WAGES } from './config';
+import { FESTIVAL, HAPPINESS, STREET, WAGES } from './config';
+import { tourismIncome } from './tourism';
 import { festivalBonus } from './festival';
 import { deliveryBoost } from './crates';
 import { landmarkBonus, perkBonus } from './perks';
@@ -66,7 +67,7 @@ export function homeMood(home: PlacedBuilding, roads = roadTiles(), wet = watere
 }
 
 export function residentHappiness(r: Resident, mood: HomeMood): number {
-  return clamp(mood.total + (r.job !== null ? HAPPINESS.employed : HAPPINESS.unemployed));
+  return clamp(mood.total + (r.cheer ?? 0) + (r.job !== null ? HAPPINESS.employed : HAPPINESS.unemployed));
 }
 
 /** Happiness of every resident, computed in one pass. */
@@ -139,6 +140,7 @@ export function workplaceIncome(
   if (b.type === 'fishStand') total *= 1 + fillets;
   total *= 1 + millBoost(b, undefined, wet);
   total *= 1 + deliveryBoost(b);
+  total *= 1 + streetBonus(b, roads);
   total *= townIncomeMultiplier();
   return total * (touchesRoad(b, roads) ? 1 + HAPPINESS.roadIncomeBonus : 1);
 }
@@ -148,6 +150,17 @@ export function incomePerWorkerOf(b: PlacedBuilding): number {
   const def = defOf(b);
   if (def.speciesIncomePerWorker) return def.speciesIncomePerWorker(b.level) * speciesCount();
   return def.incomePerWorker?.(b.level) ?? 0;
+}
+
+/**
+ * Market street: an earning shop by a road does better with other road-side shops close by
+ * (+5% for each within 3 tiles, up to +25%).
+ */
+export function streetBonus(b: PlacedBuilding, roads = roadTiles()): number {
+  const earns = (x: PlacedBuilding) => !!(defOf(x).incomePerWorker || defOf(x).speciesIncomePerWorker);
+  if (!earns(b) || !touchesRoad(b, roads)) return 0;
+  const neighbours = state.buildings.filter((x) => x !== b && earns(x) && tileGap(b, x) <= STREET.radius && touchesRoad(x, roads)).length;
+  return Math.min(STREET.max, neighbours * STREET.perShop);
 }
 
 /** Town-wide income boost from perks and the Clock Tower. */
@@ -178,5 +191,6 @@ export function totalIncome(): number {
   const roads = roadTiles();
   const wet = wateredTiles();
   const fillets = filletBoost(undefined, wet);
-  return state.buildings.reduce((sum, b) => sum + workplaceIncome(b, byResident, roads, fillets, wet), 0);
+  const shops = state.buildings.reduce((sum, b) => sum + workplaceIncome(b, byResident, roads, fillets, wet), 0);
+  return shops + tourismIncome(townHappiness(byResident));
 }

@@ -52,6 +52,18 @@ export interface Resident {
   job: number | null;
   /** The player chose this job (or no job) by hand; auto-assignment leaves it alone. */
   pinned?: boolean;
+  /** Lasting happiness from requests you fulfilled for them. */
+  cheer?: number;
+}
+
+/** Something a resident would love: a decoration near home, a road by the door, a certain job. */
+export interface Request {
+  id: number;
+  resident: number;
+  kind: 'decor' | 'road' | 'job';
+  /** Decoration or workplace type, for 'decor' and 'job'. */
+  target?: BuildingId;
+  coins: number;
 }
 
 export type QuestKind =
@@ -98,6 +110,10 @@ export interface GameState {
   nextOrderId: number;
   /** Seconds accumulated toward the next order. */
   orderTimer: number;
+  requests: Request[];
+  nextRequestId: number;
+  /** Seconds accumulated toward the next resident request. */
+  requestTimer: number;
   /** Fish the Fishing Wharf's boats brought in, waiting for the Cannery. */
   wharfHold: Record<string, number>;
   /** Seconds the fleet has been at sea (drives each boat's trips). */
@@ -164,6 +180,9 @@ function freshState(): GameState {
     orders: [],
     nextOrderId: 1,
     orderTimer: 0,
+    requests: [],
+    nextRequestId: 1,
+    requestTimer: 0,
     wharfHold: {},
     fleetClock: 0,
     cans: 0,
