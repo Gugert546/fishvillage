@@ -8,7 +8,16 @@ import {
   GAME_WIDTH,
   HOOK_RADIUS,
   HOOK_STEER_SPEED,
+  COMBO_BONUS,
+  FIGHT,
+  HARPOON,
   HAZARD_INFO,
+  ITEMS,
+  MAGNET,
+  ROD_BY_ID,
+  TREASURE,
+  WIDE_NET_REACH,
+  type ItemDef,
   WORLD,
   LEGENDARY,
   LOGBOOK_PAGE_BONUS,
@@ -25,7 +34,7 @@ import { fishingStats, state } from '../state';
 import { tickEconomy } from '../economy';
 import { questEvent, takeQuestToasts } from '../quests';
 import { hookBonus, sonarRange } from '../services';
-import { boatUnlocked, consumeBait, currentArea, cycleBait, ownsArea, readyBait, sailTo, stormBound, townLevel } from '../town';
+import { boatUnlocked, consumeBait, currentArea, cycleBait, cycleRod, ownsArea, readyBait, sailTo, stormBound, townLevel } from '../town';
 import { makeDarknessTexture, makeTextures } from '../textures';
 import { preloadSprites } from '../sprites';
 import { Art } from '../art/kit';
@@ -33,6 +42,7 @@ import { PAL, Pix, pixImage, pixTexture } from '../pixel';
 import { completePages, discovered, legendOf } from '../logbook';
 import { crateCapacity, cratesUsed } from '../crates';
 import { dailyFactor, salePrice, sellFish, stowCatch, type CatchResult } from '../market';
+import { openItem, useLegendHint, type ItemReward } from '../treasure';
 import { landmarkBonus, perkBonus } from '../perks';
 import { Atmosphere } from '../atmosphere';
 import { sfx } from '../sound';
@@ -58,7 +68,7 @@ import {
   type Button,
 } from '../ui';
 
-type Phase = 'idle' | 'descending' | 'ascending' | 'results';
+type Phase = 'idle' | 'descending' | 'ascending' | 'fighting' | 'results';
 
 interface Fish {
   type: FishType;
@@ -73,6 +83,28 @@ interface Fish {
   /** Legendary fish dart away from the hook until this time (seconds). */
   fleeUntil?: number;
   baseSpeed?: number;
+  /** A legendary that snapped the line: gone for this cast. */
+  escaped?: boolean;
+}
+
+/** Treasure or junk in the water (or on the hook). */
+interface Item {
+  def: ItemDef;
+  sprite: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  vx: number;
+  seed: number;
+  hangOffset?: number;
+}
+
+/** A legendary on the line: keep the hook on it until the reel bar fills, before the line snaps. */
+interface Fight {
+  fish: Fish;
+  progress: number;
+  tension: number;
+  targetX: number;
+  nextTurn: number;
 }
 
 interface Hazard {
@@ -100,6 +132,17 @@ export class FishingScene extends Phaser.Scene {
   private fish: Fish[] = [];
   private caught: Fish[] = [];
   private hazards: Hazard[] = [];
+  private items: Item[] = [];
+  private caughtItems: Item[] = [];
+  private fight?: Fight;
+  private fightGfx!: Phaser.GameObjects.Graphics;
+  /** Same species in a row: how many, and the bonus coins built up this cast. */
+  private combo = { fish: '', count: 0, bonus: 0 };
+  /** The harpoon's one shot per cast. */
+  private harpoon?: { sprite: Phaser.GameObjects.Image; travelled: number };
+  private harpoonUsed = false;
+  private rodButton!: Button;
+  private fireButton!: Button;
   /** Jellyfish sting: no steering until then. */
   private stunnedUntil = 0;
   private darkness?: Phaser.GameObjects.Image;
@@ -141,7 +184,6 @@ export class FishingScene extends Phaser.Scene {
   private charmsText!: Phaser.GameObjects.Text;
   private barrelsButton!: Button;
   private sonarGfx!: Phaser.GameObjects.Graphics;
-  private sonarTags: Phaser.GameObjects.Text[] = [];
   private modal?: Modal;
 
   constructor() {
@@ -157,11 +199,14 @@ export class FishingScene extends Phaser.Scene {
     this.fish = [];
     this.caught = [];
     this.hazards = [];
+    this.items = [];
+    this.caughtItems = [];
+    this.fight = undefined;
+    this.harpoon = undefined;
     this.boatZones = [];
     this.lastStormCheck = 0;
     this.skyNight = undefined;
     this.modal = undefined;
-    this.sonarTags = [];
     this.darkness = undefined;
     this.area = currentArea();
     this.worldHeight = SURFACE_Y + this.area.depth * PX_PER_M + GAME_HEIGHT;
@@ -413,7 +458,12 @@ export class FishingScene extends Phaser.Scene {
       fixToScreen(obj).setDepth(UI_DEPTH);
 
     this.topBar = new TopBar(this, false, () => {
-      if (this.phase === 'idle' && !this.modal) openSettings(this, (m) => (this.modal = m));
+      if (this.phase !== 'idle' || this.modal) return;
+      openSettings(this, (m) => {
+        this.modal = m;
+        // Closing Settings restocks the dock, so dev tools (gear, a legendary next cast) apply right away.
+        if (!m) this.resetToDock();
+      });
     });
     this.depthText = this.topBar.right;
     this.hookText = hud(makeText(this, GAME_WIDTH / 2, 70, '', 18).setOrigin(0.5));
@@ -446,6 +496,15 @@ export class FishingScene extends Phaser.Scene {
     this.areaButton = hud(
       makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 184, 240, 46, '', () => this.openAreaPicker(), COLORS.neutral, 18),
     );
+    this.rodButton = hud(
+      makeButton(this, 62, 166, 104, 36, '', () => {
+        if (this.phase !== 'idle' || this.modal) return;
+        cycleRod();
+        this.resetToDock();
+      }, COLORS.neutral, 14),
+    );
+    this.fireButton = hud(makeButton(this, GAME_WIDTH / 2, GAME_HEIGHT - 60, 200, 52, 'Fire!', () => this.fireHarpoon(), COLORS.danger, 22));
+    this.fightGfx = fixToScreen(this.add.graphics()).setDepth(UI_DEPTH);
     this.cameras.main.fadeIn(250, 0, 0, 0);
   }
 
@@ -492,6 +551,9 @@ export class FishingScene extends Phaser.Scene {
   }
 
   private refreshAreaButton(): void {
+    this.rodButton.setVisible(this.phase === 'idle' && state.rods.length > 1);
+    this.rodButton.setLabel(`Rod: ${ROD_BY_ID[state.rod].name.replace(' Rod', '')}`);
+    this.fireButton.setVisible(this.phase === 'descending' && state.rod === 'harpoon' && !this.harpoonUsed);
     this.logbookButton.setVisible(this.phase === 'idle');
     this.barrelsButton.setVisible(this.phase === 'idle');
     this.barrelsButton.setLabel(`Barrels ${cratesUsed()}/${crateCapacity()}`);
@@ -539,10 +601,10 @@ export class FishingScene extends Phaser.Scene {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
       if (over.length > 0 || this.modal) return;
       if (this.phase === 'idle') this.cast();
-      else if (this.phase === 'descending' || this.phase === 'ascending') this.targetX = p.x;
+      else if (this.steering()) this.targetX = p.x;
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (p.isDown && (this.phase === 'descending' || this.phase === 'ascending')) this.targetX = p.x;
+      if (p.isDown && this.steering()) this.targetX = p.x;
     });
 
     if (this.input.keyboard) {
@@ -555,6 +617,15 @@ export class FishingScene extends Phaser.Scene {
 
   // --------------------------------------------------------------- Flow
 
+  private steering(): boolean {
+    return this.phase === 'descending' || this.phase === 'ascending' || this.phase === 'fighting';
+  }
+
+  /** Fish and items on the hook. */
+  private hookUsed(): number {
+    return this.caught.length + this.caughtItems.length;
+  }
+
   private resetToDock(): void {
     this.phase = 'idle';
     this.stats = fishingStats();
@@ -563,12 +634,21 @@ export class FishingScene extends Phaser.Scene {
     // A boat's winch lets out extra line, but the line never goes past the sea floor.
     this.stats.lineLength = Math.min(this.stats.lineLength + this.area.lineBonus, this.area.depth);
     this.sonar = sonarRange();
-    for (const f of [...this.fish, ...this.caught]) f.sprite.destroy();
+    for (const f of [...this.fish, ...this.caught, ...this.items, ...this.caughtItems]) f.sprite.destroy();
+    this.harpoon?.sprite.destroy();
     this.fish = [];
     this.caught = [];
+    this.items = [];
+    this.caughtItems = [];
+    this.fight = undefined;
+    this.harpoon = undefined;
+    this.harpoonUsed = false;
+    this.combo = { fish: '', count: 0, bonus: 0 };
+    this.fightGfx.clear();
     this.stunnedUntil = 0;
     this.spawnFish();
     this.spawnHazards();
+    this.spawnItems();
 
     this.hookX = HOOK_REST.x;
     this.hookY = HOOK_REST.y;
@@ -603,7 +683,8 @@ export class FishingScene extends Phaser.Scene {
     this.todayText.setVisible(false);
     this.charmsText.setVisible(false);
     // Merchant charms: the lure was already used to stock the water, the rest apply to this cast.
-    if (this.fish.some((f) => f.type.legendary)) useCharm('goldenLure');
+    // A bottle's tip (or else a Golden Lure) put the legendary in the water: use it up.
+    if (this.fish.some((f) => f.type.legendary) && !useLegendHint(this.area.id)) useCharm('goldenLure');
     if (useCharm('goldenNet')) this.stats.capacity += 3;
     sfx.cast();
     this.topBar.setSettingsVisible(false);
@@ -612,11 +693,13 @@ export class FishingScene extends Phaser.Scene {
   private startAscent(): void {
     this.phase = 'ascending';
     this.reelBoost = 1;
+    this.refreshAreaButton();
   }
 
   private finishCast(): void {
     this.phase = 'results';
     this.targetX = null;
+    this.refreshAreaButton();
 
     const counts = new Map<FishType, number>();
     const fresh = new Set(this.caught.filter((f) => !discovered(f.type.id)).map((f) => f.type));
@@ -626,6 +709,8 @@ export class FishingScene extends Phaser.Scene {
       state.caught[f.type.id] = (state.caught[f.type.id] ?? 0) + 1;
     }
     questEvent({ type: 'cast', fish: this.caught.map((f) => f.type.id) });
+    const rewards = this.caughtItems.map((i) => openItem(i.def.id, this.area));
+    state.coins += this.combo.bonus;
     // Everything goes into the barrels; what doesn't fit is sold cheaply on the spot.
     const stowed = stowCatch(this.caught.map((f) => f.type));
     this.refreshHud();
@@ -640,7 +725,7 @@ export class FishingScene extends Phaser.Scene {
     for (const id of completePages()) {
       if (!pagesBefore.has(id)) showToast(this, `Logbook page done: ${AREAS.find((a) => a.id === id)!.name} +${Math.round(LOGBOOK_PAGE_BONUS * 100)}%`);
     }
-    this.showResults(counts, stowed, fresh);
+    this.showResults(counts, stowed, fresh, rewards, this.combo.bonus);
   }
 
   // --------------------------------------------------------------- Fish
@@ -675,7 +760,7 @@ export class FishingScene extends Phaser.Scene {
   /** Now and then the area's legendary fish is down there, if the line can reach it. */
   private maybeSpawnLegend(): void {
     const type = legendOf(this.area.id);
-    const lure = (state.charms.goldenLure ?? 0) > 0;
+    const lure = (state.charms.goldenLure ?? 0) > 0 || state.legendHints.includes(this.area.id);
     const chance = lure ? 1 : LEGENDARY.chance + perkBonus('luckyCharm') + landmarkBonus('legendaryChance') + (isNight() ? WORLD.nightLegendaryChance : 0);
     if (!type || Math.random() >= chance || type.minDepth > this.stats.lineLength) return;
     const depth = Phaser.Math.Between(type.minDepth, Math.min(type.maxDepth, this.stats.lineLength - 5));
@@ -773,13 +858,154 @@ export class FishingScene extends Phaser.Scene {
   private updateFish(dt: number, t: number): void {
     const casting = this.phase === 'descending' || this.phase === 'ascending';
     for (const f of this.fish) {
-      if (f.type.legendary) this.legendFlee(f, t, casting);
+      if (f === this.fight?.fish) continue;
+      if (f.type.legendary && !f.escaped) this.legendFlee(f, t, casting);
       f.x += f.vx * dt;
       const half = f.sprite.width / 2;
       if (f.x < half && f.vx < 0) f.vx = -f.vx;
       if (f.x > GAME_WIDTH - half && f.vx > 0) f.vx = -f.vx;
       const bob = f.type.erratic ? Math.sin(t * 2.5 + f.seed) * 18 : Math.sin(t * 1.5 + f.seed) * 3;
       f.sprite.setPosition(f.x, f.y + bob).setFlipX(f.vx < 0);
+    }
+  }
+
+  /** Treasure and junk for this cast: a chest on the sea floor, a bottle near the top, some junk. */
+  private spawnItems(): void {
+    const more = state.rod === 'magnet' ? MAGNET.treasureMultiplier : 1;
+    const add = (def: ItemDef, depthM: number, vx: number) => {
+      const x = Phaser.Math.Between(40, GAME_WIDTH - 40);
+      const y = SURFACE_Y + depthM * PX_PER_M;
+      const sprite = this.add.image(x, y, `item-${def.id}`).setDepth(5);
+      this.items.push({ def, sprite, x, y, vx, seed: Math.random() * 1000 });
+    };
+    if (Math.random() < Math.min(0.9, TREASURE.chestChance * more)) add(ITEMS.chest, this.area.depth - 0.6, 0);
+    if (Math.random() < Math.min(0.9, TREASURE.bottleChance * more)) add(ITEMS.bottle, Phaser.Math.Between(3, 25), Phaser.Math.Between(-12, 12));
+    const junk = Math.floor((this.area.depth / 100) * TREASURE.junkPer100m + Math.random());
+    for (let i = 0; i < junk; i++) {
+      add(Math.random() < 0.5 ? ITEMS.boot : ITEMS.tinCan, Phaser.Math.Between(10, this.area.depth - 10), Phaser.Math.Between(-15, 15));
+    }
+  }
+
+  /** Bottles bob, junk drifts, and the Magnet Rod pulls treasure toward the hook. */
+  private updateItems(dt: number, t: number): void {
+    const magnet = state.rod === 'magnet' && (this.phase === 'descending' || this.phase === 'ascending');
+    for (const it of this.items) {
+      it.x += it.vx * dt;
+      if (it.x < 20 || it.x > GAME_WIDTH - 20) it.vx = -it.vx;
+      if (magnet) {
+        const dx = this.hookX - it.x;
+        const dy = this.hookY - it.y;
+        const d = Math.hypot(dx, dy);
+        if (d < MAGNET.radius && d > 1) {
+          it.x += (dx / d) * MAGNET.pull * dt;
+          it.y += (dy / d) * MAGNET.pull * dt;
+        }
+      }
+      const bob = it.def.where === 'floor' ? 0 : Math.sin(t * 1.3 + it.seed) * 3;
+      it.sprite.setPosition(it.x, it.y + bob);
+    }
+  }
+
+  private itemTouchingHook(reach = 1): Item | undefined {
+    for (const it of this.items) {
+      const dx = it.sprite.x - this.hookX;
+      const dy = it.sprite.y - this.hookY;
+      const rx = (it.def.width / 2 + HOOK_RADIUS * 0.5) * reach;
+      const ry = (it.def.height / 2 + HOOK_RADIUS * 0.5) * reach;
+      if ((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1) return it;
+    }
+    return undefined;
+  }
+
+  private catchItem(it: Item): void {
+    this.items.splice(this.items.indexOf(it), 1);
+    this.caughtItems.push(it);
+    it.sprite.setDepth(9);
+    sfx.catch(it.def.id === 'chest' ? 500 : 5);
+    this.popText(it.def.name, it.def.id === 'chest' ? COLORS.gold : '#ffffff');
+  }
+
+  /** Harpoon: one shot straight down on the way down; spears the first fish it meets. */
+  private fireHarpoon(): void {
+    if (this.phase !== 'descending' || this.harpoonUsed || state.rod !== 'harpoon') return;
+    this.harpoonUsed = true;
+    this.harpoon = { sprite: this.add.image(this.hookX, this.hookY, 'harpoon').setDepth(12), travelled: 0 };
+    sfx.cast();
+    this.refreshAreaButton();
+  }
+
+  private updateHarpoon(dt: number): void {
+    const h = this.harpoon;
+    if (!h) return;
+    const step = HARPOON.speed * dt;
+    h.travelled += step;
+    h.sprite.y += step;
+    h.sprite.x = this.hookX;
+    // Legendaries are too tough for a harpoon.
+    const hit = this.fish.find((f) => !f.type.legendary && Math.abs(f.sprite.x - h.sprite.x) < f.sprite.width / 2 && Math.abs(f.sprite.y - h.sprite.y) < f.type.height / 2 + 6);
+    if (hit && this.hookUsed() < this.stats.capacity) this.catchFish(hit);
+    if (hit || h.travelled > HARPOON.range) {
+      h.sprite.destroy();
+      this.harpoon = undefined;
+    }
+  }
+
+  /** Hooking a legendary: the line goes taut and the fight is on. */
+  private startFight(f: Fish, time: number): void {
+    this.phase = 'fighting';
+    this.fight = { fish: f, progress: 0, tension: 0.3, targetX: f.x, nextTurn: time / 1000 };
+    this.cameras.main.shake(200, 0.008);
+    sfx.sting();
+    this.popText('Fish on!', COLORS.gold);
+  }
+
+  private updateFight(dt: number, t: number): void {
+    const fight = this.fight!;
+    const f = fight.fish;
+    // The fish thrashes from side to side; keep the hook on it.
+    if (t > fight.nextTurn) {
+      fight.targetX = Phaser.Math.Between(50, GAME_WIDTH - 50);
+      fight.nextTurn = t + 0.5 + Math.random() * 0.7;
+    }
+    const step = FIGHT.thrashSpeed * dt;
+    f.x += Phaser.Math.Clamp(fight.targetX - f.x, -step, step);
+    f.y = this.hookY + 6;
+    f.sprite.setPosition(f.x + Math.sin(t * 40) * 2, f.y).setFlipX(fight.targetX < f.x);
+
+    const on = Math.abs(this.hookX - f.x) < FIGHT.reach;
+    fight.progress = Math.min(1, fight.progress + (on ? dt / FIGHT.reelSeconds : 0));
+    fight.tension = Phaser.Math.Clamp(fight.tension + (on ? -dt : dt) / FIGHT.snapSeconds, 0, 1);
+
+    if (fight.progress >= 1) {
+      this.fight = undefined;
+      this.phase = 'ascending';
+      this.catchFish(f);
+      this.popText('Landed!', COLORS.gold);
+      sfx.fanfare();
+    } else if (fight.tension >= 1) {
+      // The line snaps: the legendary gets away for this cast.
+      this.fight = undefined;
+      this.phase = 'ascending';
+      f.escaped = true;
+      f.fleeUntil = Infinity;
+      f.vx = (f.x < GAME_WIDTH / 2 ? 1 : -1) * LEGENDARY.fleeSpeed * 1.5;
+      this.cameras.main.shake(150, 0.008);
+      this.popText('The line snapped!', '#ff8a8a');
+      sfx.bump();
+    }
+    this.drawFightBars();
+  }
+
+  /** Reel (green) and tension (red) bars at the top of the screen during a fight. */
+  private drawFightBars(): void {
+    const g = this.fightGfx.clear();
+    if (!this.fight) return;
+    const w = 240;
+    const x = GAME_WIDTH / 2 - w / 2;
+    for (const [y, frac, color] of [[100, this.fight.progress, 0x63c74d], [122, this.fight.tension, 0xe43b44]] as [number, number, number][]) {
+      g.fillStyle(0x181425).fillRect(x - 2, y - 2, w + 4, 14);
+      g.fillStyle(0x3a4466).fillRect(x, y, w, 10);
+      g.fillStyle(color).fillRect(x, y, w * frac, 10);
     }
   }
 
@@ -799,14 +1025,14 @@ export class FishingScene extends Phaser.Scene {
     }
   }
 
-  private fishTouchingHook(): Fish | undefined {
+  private fishTouchingHook(reach = 1): Fish | undefined {
     for (const f of this.fish) {
       // Legendaries are too wary to bump into on the way down; you have to catch them going up.
-      if (f.type.legendary && this.phase === 'descending') continue;
+      if (f.type.legendary && (this.phase === 'descending' || f.escaped)) continue;
       const dx = f.sprite.x - this.hookX;
       const dy = f.sprite.y - this.hookY;
-      const rx = f.sprite.width / 2 + HOOK_RADIUS * 0.5;
-      const ry = f.type.height / 2 + HOOK_RADIUS * 0.5;
+      const rx = (f.sprite.width / 2 + HOOK_RADIUS * 0.5) * reach;
+      const ry = (f.type.height / 2 + HOOK_RADIUS * 0.5) * reach;
       if ((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1) return f;
     }
     return undefined;
@@ -822,6 +1048,16 @@ export class FishingScene extends Phaser.Scene {
     const pop = makeText(this, this.hookX, this.hookY - 20, `+$${this.priceOf(f.type)}`, 18).setOrigin(0.5).setDepth(20);
     pop.setColor('#ffe066');
     this.tweens.add({ targets: pop, y: pop.y - 50, alpha: 0, duration: 800, onComplete: () => pop.destroy() });
+
+    // Same species again: the combo grows and pays a little extra each time.
+    if (this.combo.fish === f.type.id) this.combo.count++;
+    else this.combo = { fish: f.type.id, count: 1, bonus: this.combo.bonus };
+    if (this.combo.count >= 2) {
+      const extra = Math.max(1, Math.round(this.priceOf(f.type) * COMBO_BONUS * (this.combo.count - 1)));
+      this.combo.bonus += extra;
+      const c = makeText(this, this.hookX, this.hookY + 10, `Combo x${this.combo.count}! +$${extra}`, 16).setOrigin(0.5).setDepth(20).setColor('#63c74d');
+      this.tweens.add({ targets: c, y: c.y - 60, alpha: 0, duration: 1100, onComplete: () => c.destroy() });
+    }
   }
 
   // --------------------------------------------------------------- Loop
@@ -846,9 +1082,12 @@ export class FishingScene extends Phaser.Scene {
     }
     this.updateFish(dt, t);
     this.updateHazards(dt, t);
+    this.updateItems(dt, t);
+    this.updateHarpoon(dt);
 
     const casting = this.phase === 'descending' || this.phase === 'ascending';
-    if (casting && time >= this.stunnedUntil) this.steerHook(dt);
+    if (this.steering() && time >= this.stunnedUntil) this.steerHook(dt);
+    if (this.phase === 'fighting') this.updateFight(dt, t);
     if (casting) {
       const h = this.hazardTouchingHook();
       if (h && this.hitHazard(h, time) && this.phase === 'descending') this.startAscent();
@@ -858,7 +1097,12 @@ export class FishingScene extends Phaser.Scene {
       this.hookY += this.stats.descentSpeed * PX_PER_M * dt;
       const maxY = SURFACE_Y + this.stats.lineLength * PX_PER_M;
       const hit = time >= this.invulnerableUntil ? this.fishTouchingHook() : undefined;
-      if (hit) {
+      const item = hit ? undefined : this.itemTouchingHook();
+      if (item) {
+        // Snagged something that isn't a fish: up it comes.
+        this.catchItem(item);
+        this.startAscent();
+      } else if (hit) {
         if (this.shieldsLeft > 0) {
           this.shieldsLeft--;
           this.invulnerableUntil = time + 700;
@@ -875,14 +1119,18 @@ export class FishingScene extends Phaser.Scene {
         this.startAscent();
       }
     } else if (this.phase === 'ascending') {
-      if (this.caught.length >= this.stats.capacity) {
+      if (this.hookUsed() >= this.stats.capacity) {
         const rate = (FULL_HOOK_REEL_MULTIPLIER - 1) / FULL_HOOK_RAMP_SECONDS;
         this.reelBoost = Math.min(FULL_HOOK_REEL_MULTIPLIER, this.reelBoost + rate * dt);
       }
       this.hookY -= this.stats.ascentSpeed * this.reelBoost * PX_PER_M * dt;
-      if (this.caught.length < this.stats.capacity) {
-        const f = this.fishTouchingHook();
-        if (f) this.catchFish(f);
+      if (this.hookUsed() < this.stats.capacity) {
+        const reach = state.rod === 'wideNet' ? WIDE_NET_REACH : 1;
+        const f = this.fishTouchingHook(reach);
+        const it = f ? undefined : this.itemTouchingHook(reach);
+        if (f?.type.legendary) this.startFight(f, time);
+        else if (f) this.catchFish(f);
+        else if (it) this.catchItem(it);
       }
       if (this.hookY <= HOOK_REST.y) {
         this.hookY = HOOK_REST.y;
@@ -899,12 +1147,11 @@ export class FishingScene extends Phaser.Scene {
   }
 
   /**
-   * Lighthouse sonar: a ping ring from the hook, a price tag on every fish in range, and a
-   * pulsing red ring on fish right in your path on the way down.
+   * Lighthouse sonar: a ping ring from the hook, and a pulsing red ring on fish and hazards right
+   * in your path on the way down. (No price tags: they cluttered the screen.)
    */
   private drawSonar(time: number): void {
     const g = this.sonarGfx.clear();
-    for (const t of this.sonarTags) t.setVisible(false);
     const casting = this.phase === 'descending' || this.phase === 'ascending';
     if (this.sonar <= 0 || !casting) return;
 
@@ -912,7 +1159,6 @@ export class FishingScene extends Phaser.Scene {
     const ping = (time % 1400) / 1400;
     g.lineStyle(2, 0x8ee88e, 0.5 * (1 - ping)).strokeCircle(this.hookX, this.hookY, ping * rangePx);
 
-    let used = 0;
     const pulse = 0.5 + 0.5 * Math.sin(time / 90);
     for (const f of this.fish) {
       const dy = f.sprite.y - this.hookY;
@@ -924,15 +1170,6 @@ export class FishingScene extends Phaser.Scene {
         g.lineStyle(3, 0xff5a5a, 0.4 + 0.5 * pulse).strokeEllipse(f.sprite.x, f.sprite.y, f.sprite.width + 16, f.type.height + 16);
       }
 
-      if (used >= 24) continue;
-      let tag = this.sonarTags[used];
-      if (!tag) {
-        tag = makeText(this, 0, 0, '', 13).setOrigin(0.5, 1).setDepth(9);
-        this.sonarTags.push(tag);
-      }
-      tag.setText(`$${this.priceOf(f.type)}`).setPosition(f.sprite.x, f.sprite.y - f.type.height / 2 - 4).setVisible(true);
-      tag.setColor(inPath ? '#ff8a8a' : COLORS.gold);
-      used++;
     }
     for (const h of this.hazards) {
       const dy = h.sprite.y - this.hookY;
@@ -974,7 +1211,7 @@ export class FishingScene extends Phaser.Scene {
     const cam = this.cameras.main;
     let target = 0;
     if (this.phase === 'descending') target = this.hookY - GAME_HEIGHT * 0.3;
-    else if (this.phase === 'ascending') target = this.hookY - GAME_HEIGHT * 0.65;
+    else if (this.phase === 'ascending' || this.phase === 'fighting') target = this.hookY - GAME_HEIGHT * 0.65;
     // Follow tighter while reeling in fast so the hook doesn't run off the top of the screen.
     const follow = this.reelBoost > 1 ? 14 : 8;
     cam.scrollY += (target - cam.scrollY) * Math.min(1, dt * follow);
@@ -998,6 +1235,11 @@ export class FishingScene extends Phaser.Scene {
     for (const f of this.caught) {
       f.sprite.setPosition(this.hookX + sway, this.hookY + 8 + f.sprite.width / 2 + (f.hangOffset ?? 0));
     }
+    let below = this.caught.reduce((sum, c) => sum + Math.min(c.type.width, 30) * 0.45, 0) + 8;
+    for (const it of this.caughtItems) {
+      it.sprite.setPosition(this.hookX + sway, this.hookY + below + it.def.height / 2);
+      below += it.def.height * 0.8;
+    }
   }
 
   private refreshHud(): void {
@@ -1008,8 +1250,10 @@ export class FishingScene extends Phaser.Scene {
     if (this.phase === 'descending') {
       this.hookText.setText(this.stats.shields > 0 ? `Lure: ${this.shieldsLeft}/${this.stats.shields}` : '');
     } else if (this.phase === 'ascending') {
-      const full = this.caught.length >= this.stats.capacity;
-      this.hookText.setText(full ? 'Hook full!' : `Hook ${this.caught.length} / ${this.stats.capacity}`);
+      const full = this.hookUsed() >= this.stats.capacity;
+      this.hookText.setText(full ? 'Hook full!' : `Hook ${this.hookUsed()} / ${this.stats.capacity}`);
+    } else if (this.phase === 'fighting') {
+      this.hookText.setText('Keep the hook on it!');
     }
   }
 
@@ -1019,10 +1263,12 @@ export class FishingScene extends Phaser.Scene {
    * The catch, now in the barrels, with today's price for each fish. Sell this catch straight
    * away, or keep it and sell later (from the Barrels button) when prices suit you.
    */
-  private showResults(counts: Map<FishType, number>, stowed: CatchResult, fresh: Set<FishType>): void {
+  private showResults(counts: Map<FishType, number>, stowed: CatchResult, fresh: Set<FishType>, rewards: ItemReward[], comboBonus: number): void {
     const rows = Math.max(1, counts.size);
     const over = [...stowed.overflow.values()].reduce((a, b) => a + b, 0);
-    const m = (this.modal = new Modal(this, 236 + rows * 38 + (over > 0 ? 24 : 0)));
+    // Bottle notes run to two lines.
+    const extraRows = rewards.length + rewards.filter((r) => r.item === 'bottle').length * 0.6 + (comboBonus > 0 ? 1 : 0);
+    const m = (this.modal = new Modal(this, 236 + rows * 38 + (over > 0 ? 24 : 0) + extraRows * 34));
     const close = () => {
       m.destroy();
       this.modal = undefined;
@@ -1030,10 +1276,11 @@ export class FishingScene extends Phaser.Scene {
       this.resetToDock();
     };
 
-    m.text(GAME_WIDTH / 2, m.top + 36, counts.size > 0 ? 'Nice catch!' : 'Nothing this time', 28);
+    m.text(GAME_WIDTH / 2, m.top + 36, counts.size > 0 || rewards.length > 0 ? 'Nice catch!' : 'Nothing this time', 28);
     if (this.area.id !== 'harbor') m.text(GAME_WIDTH / 2, m.top + 62, this.area.name, 13).setAlpha(0.6);
     let y = m.top + 96;
-    if (counts.size === 0) m.text(GAME_WIDTH / 2, y, 'Steer into fish on the way up!', 18).setAlpha(0.8);
+    if (counts.size === 0 && rewards.length === 0) m.text(GAME_WIDTH / 2, y, 'Steer into fish on the way up!', 18).setAlpha(0.8);
+    if (counts.size === 0 && rewards.length > 0) y -= 38;
     let value = 0;
     for (const [type, n] of [...counts].sort((a, b) => b[0].value - a[0].value)) {
       const img = this.add.image(56, y, `fish-${type.id}`);
@@ -1048,6 +1295,15 @@ export class FishingScene extends Phaser.Scene {
       m.text(GAME_WIDTH - 44, y, `$${price}${trend}`, 16, 1).setColor(factor >= 1.05 ? '#8ee88e' : factor <= 0.95 ? '#ff8a8a' : '#ffffff');
       value += price * (stowed.kept.get(type) ?? 0);
       y += 38;
+    }
+    for (const r of rewards) {
+      m.add(this.add.image(56, y, `item-${r.item}`));
+      const line = m.text(84, y, r.text, 16, 0).setColor(r.item === 'chest' ? COLORS.gold : '#ffffff').setWordWrapWidth(GAME_WIDTH - 130);
+      y += Math.max(34, line.height + 12);
+    }
+    if (comboBonus > 0) {
+      m.text(GAME_WIDTH / 2, y, `Combo bonus: +$${formatCoins(comboBonus)}`, 16).setColor('#63c74d');
+      y += 34;
     }
     if (over > 0) {
       m.text(GAME_WIDTH / 2, y, `Barrels full: ${over} sold on the spot for $${formatCoins(stowed.overflowCoins)}`, 13).setColor('#ffb4a2');

@@ -3,6 +3,7 @@
 import { PROJECTS, PROJECT_CHUNKS, type ProjectDef, type ProjectId } from './config';
 import { save, state } from './state';
 import { townLevel } from './town';
+import { canAfford, spend } from './dev';
 
 export const projectFunded = (p: ProjectDef): number => state.projects[p.id] ?? 0;
 export const projectDone = (id: ProjectId): boolean => {
@@ -18,8 +19,8 @@ export function nextChunk(p: ProjectDef): number {
 
 export function fundProject(p: ProjectDef): boolean {
   const chunk = nextChunk(p);
-  if (!projectUnlocked(p) || chunk <= 0 || state.coins < chunk) return false;
-  state.coins -= chunk;
+  if (!projectUnlocked(p) || chunk <= 0 || !canAfford(chunk)) return false;
+  spend(chunk);
   state.projects[p.id] = projectFunded(p) + chunk;
   save();
   return true;

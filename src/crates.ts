@@ -17,6 +17,7 @@ import { queueToast } from './quests';
 import { fishingStats, save, state, type Order, type PlacedBuilding } from './state';
 import { ownsArea, townLevel } from './town';
 import { isWorking, wateredTiles } from './water';
+import { freeMode } from './dev';
 import { perkBonus } from './perks';
 import { projectDone } from './projects';
 
@@ -54,10 +55,11 @@ export function unstoreFish(fish: string, n: number): number {
   return out;
 }
 
-export const hasFish = (need: FishNeed): boolean => onIce(need.fish) >= need.amount;
+export const hasFish = (need: FishNeed): boolean => freeMode() || onIce(need.fish) >= need.amount;
 
 function useFish(need: FishNeed): boolean {
   if (!hasFish(need)) return false;
+  if (freeMode()) return true;
   unstoreFish(need.fish, need.amount);
   return true;
 }

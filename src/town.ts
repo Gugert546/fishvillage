@@ -16,6 +16,7 @@ import {
   upgradeCost,
   type AreaDef,
   type BaitDef,
+  type RodDef,
   type BuildingDef,
   type BuildingId,
   type MerchantItemId,
@@ -29,6 +30,7 @@ import { weather } from './world';
 import { projectDone } from './projects';
 import { fishName, hasFish, payUpgradeFish, upgradeNeed } from './crates';
 import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
+import { canAfford, freeMode, spend } from './dev';
 
 export function townRows(): number {
   return Math.min(MAX_ROWS, START_ROWS + state.expansions * ROWS_PER_EXPANSION);
@@ -44,8 +46,8 @@ export function nextExpansionCost(): number {
 
 export function expand(): boolean {
   const cost = nextExpansionCost();
-  if (!canExpand() || state.coins < cost) return false;
-  state.coins -= cost;
+  if (!canExpand() || !canAfford(cost)) return false;
+  spend(cost);
   state.expansions++;
   save();
   return true;
@@ -103,10 +105,10 @@ export function canPlace(def: BuildingDef, col: number, row: number, ignore?: Pl
 
 export function placeBuilding(def: BuildingDef, col: number, row: number): PlacedBuilding | undefined {
   const cost = buildCost(def);
-  if (!isUnlocked(def) || state.coins < cost || countOwned(def.id) >= countCap(def) || !canPlace(def, col, row)) {
+  if (!isUnlocked(def) || !canAfford(cost) || countOwned(def.id) >= countCap(def) || !canPlace(def, col, row)) {
     return undefined;
   }
-  state.coins -= cost;
+  spend(cost);
   const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost };
   state.buildings.push(building);
   if (def.landmark && !state.landmarks.includes(def.id)) state.landmarks.push(def.id);
@@ -119,12 +121,12 @@ export function placeBuilding(def: BuildingDef, col: number, row: number): Place
 export function upgradeBuilding(b: PlacedBuilding): boolean {
   const def = BUILDING_BY_ID[b.type];
   const cost = def.upgradeCost(b.level);
-  if (b.level >= levelCap(b) || state.coins < cost) return false;
+  if (b.level >= levelCap(b) || !canAfford(cost)) return false;
   if (b.type === 'playerHouse' && houseUpgradeBlockers().length > 0) return false;
   const need = upgradeNeed(b);
   if (need && !hasFish(need)) return false;
   payUpgradeFish(b);
-  state.coins -= cost;
+  spend(cost);
   b.spent = totalSpent(b) + cost;
   b.level++;
   assignJobs();
@@ -177,6 +179,9 @@ export function moveBuilding(b: PlacedBuilding, col: number, row: number): boole
 }
 
 /** Highest level of a building type you own, 0 if none. */
+/** A shop sells while someone works there (and always, in dev free mode). */
+export const sellsNow = (type: BuildingId): boolean => freeMode() || shopOpen(type);
+
 export function shopLevel(type: BuildingId): number {
   return state.buildings.reduce((max, b) => (b.type === type ? Math.max(max, b.level) : max), 0);
 }
@@ -189,8 +194,8 @@ export function upgradeLevelCap(def: UpgradeDef): number {
 export function buyUpgrade(def: UpgradeDef): boolean {
   const level = state.upgrades[def.id];
   const cost = upgradeCost(def, level);
-  if (!shopOpen(def.shop) || level >= upgradeLevelCap(def) || state.coins < cost) return false;
-  state.coins -= cost;
+  if (!sellsNow(def.shop) || level >= upgradeLevelCap(def) || !canAfford(cost)) return false;
+  spend(cost);
   state.upgrades[def.id]++;
   save();
   return true;
@@ -269,7 +274,7 @@ export function unlocksAt(level: number): BuildingDef[] {
 /** Why the house can't be upgraded yet, besides coins (empty when it can). */
 export function houseUpgradeBlockers(): string[] {
   const next = TOWN_LEVELS[townLevel() + 1];
-  if (!next) return [];
+  if (!next || freeMode()) return [];
   const blockers: string[] = [];
   if (state.residents.length < next.residents) blockers.push(`${next.residents} residents`);
   if (next.fish && !hasFish(next.fish)) blockers.push(`${next.fish.amount} ${fishName(next.fish.fish)} on ice`);
@@ -299,8 +304,8 @@ export function baitUnlocked(bait: BaitDef): boolean {
 }
 
 export function buyBait(bait: BaitDef): boolean {
-  if (!shopOpen('baitShop') || !baitUnlocked(bait) || state.coins < bait.packCost) return false;
-  state.coins -= bait.packCost;
+  if (!sellsNow('baitShop') || !baitUnlocked(bait) || !canAfford(bait.packCost)) return false;
+  spend(bait.packCost);
   state.bait[bait.id] = (state.bait[bait.id] ?? 0) + bait.packSize;
   // First bait of its kind gets picked automatically, so it's actually used.
   if (!state.selectedBait) state.selectedBait = bait.id;
@@ -354,16 +359,17 @@ export function boatUnlocked(area: AreaDef): boolean {
   return townLevel() >= area.unlockLevel;
 }
 
-/** The Boatyard builds boats while it has a worker and water beside it. */
+/** The Boatyard builds boats while it has a worker and water beside it (always, in free mode). */
 export function boatyardOpen(): boolean {
+  if (freeMode()) return true;
   const counts = workerCounts();
   const wet = wateredTiles();
   return state.buildings.some((b) => b.type === 'boatyard' && (counts.get(b.id) ?? 0) > 0 && isWorking(b, wet));
 }
 
 export function buyBoat(area: AreaDef): boolean {
-  if (ownsArea(area) || !boatUnlocked(area) || !boatyardOpen() || state.coins < area.cost) return false;
-  state.coins -= area.cost;
+  if (ownsArea(area) || !boatUnlocked(area) || !boatyardOpen() || !canAfford(area.cost)) return false;
+  spend(area.cost);
   state.boats.push(area.id);
   save();
   return true;
@@ -372,5 +378,27 @@ export function buyBoat(area: AreaDef): boolean {
 export function sailTo(area: AreaDef): void {
   if (!ownsArea(area)) return;
   state.area = area.id;
+  save();
+}
+
+// --------------------------------------------------------------------- Rods
+
+export const rodUnlocked = (rod: RodDef): boolean => townLevel() >= rod.unlockLevel;
+export const ownsRod = (rod: RodDef): boolean => state.rods.includes(rod.id);
+
+/** Rods are sold at the Tackle Shop, which needs a shopkeeper. */
+export function buyRod(rod: RodDef): boolean {
+  if (ownsRod(rod) || !rodUnlocked(rod) || !sellsNow('tackleShop') || !canAfford(rod.cost)) return false;
+  spend(rod.cost);
+  state.rods.push(rod.id);
+  state.rod = rod.id;
+  save();
+  return true;
+}
+
+/** Switches to the next rod you own. */
+export function cycleRod(): void {
+  const i = state.rods.indexOf(state.rod);
+  state.rod = state.rods[(i + 1) % state.rods.length];
   save();
 }

@@ -8,6 +8,7 @@ import { dailyFactor, priceBonuses, salePrice, sellAll, sellType, stock, stockVa
 import { housingCapacity } from './population';
 import { resetGame, save, state } from './state';
 import { setMusic, setSound, sfx } from './sound';
+import { devFillBarrels, devLegendNextCast, devMaxTownLevel, devUnlockGear, freeMode, setFreeMode } from './dev';
 import { coinTexture, faceTexture, gearTexture, personIconTexture } from './art/icons';
 
 export const UI_DEPTH = 100;
@@ -334,7 +335,7 @@ function makeGearButton(scene: Phaser.Scene, x: number, y: number, onClick: () =
 export function openSettings(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void): void {
   // Playtesting tools only exist in dev builds (npm run dev), never in a shipped game.
   const cheats = import.meta.env.DEV;
-  const m = new Modal(scene, cheats ? 466 : 266);
+  const m = new Modal(scene, cheats ? 556 : 266);
   setModal(m);
   const close = () => {
     m.destroy();
@@ -359,22 +360,42 @@ export function openSettings(scene: Phaser.Scene, setModal: (m: Modal | undefine
   if (cheats) {
     m.text(GAME_WIDTH / 2, y, 'Playtesting', 18).setColor(COLORS.gold);
     y += 46;
+    // Two tools side by side: each runs, says what it did and closes the menu.
+    const pair = (items: [string, () => void, string][]) => {
+      items.forEach(([label, run, msg], i) => {
+        const btn = makeButton(scene, GAME_WIDTH / 2 + (i === 0 ? -82 : 82), y, 156, 44, label, () => {
+          run();
+          showToast(scene, msg);
+          close();
+        }, COLORS.neutral, 16);
+        m.add(btn);
+      });
+      y += 58;
+    };
+    toggle(GAME_WIDTH / 2 - 82, 'Free', freeMode(), () => setFreeMode(!freeMode()));
+    m.add(makeButton(scene, GAME_WIDTH / 2 + 82, y, 156, 44, 'Skip 1 hour', () => {
+      skipTime(3600);
+      close();
+    }, COLORS.neutral, 16));
+    y += 58;
     const grants: [string, number][] = [['+$1k', 1_000], ['+$10k', 10_000], ['+$100k', 100_000]];
     grants.forEach(([label, amount], i) => {
-      const btn = makeButton(scene, GAME_WIDTH / 2 + (i - 1) * 124, y, 112, 46, label, () => {
+      const btn = makeButton(scene, GAME_WIDTH / 2 + (i - 1) * 108, y, 100, 44, label, () => {
         state.coins += amount;
         save();
-      }, COLORS.buy, 18);
+      }, COLORS.buy, 16);
       m.add(btn);
     });
-    y += 60;
-    m.add(
-      makeButton(scene, GAME_WIDTH / 2, y, 236, 46, 'Skip 1 hour', () => {
-        skipTime(3600);
-        close();
-      }, COLORS.neutral, 18),
-    );
-    y += 72;
+    y += 58;
+    pair([
+      ['Max town lv', devMaxTownLevel, 'Town level 10'],
+      ['Unlock gear', devUnlockGear, 'All boats, rods, gear and bait'],
+    ]);
+    pair([
+      ['Legend next', devLegendNextCast, 'A legendary waits on your next cast'],
+      ['Fill barrels', devFillBarrels, 'Barrels filled'],
+    ]);
+    y += 8;
   }
 
   m.add(

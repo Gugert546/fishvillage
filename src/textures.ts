@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { FISH, HAZARD_INFO } from './config';
+import { FISH, HAZARD_INFO, ITEMS } from './config';
 import { lerpColor } from './ui';
 import { Art } from './art/kit';
 import { PAL, Pix } from './pixel';
@@ -98,6 +98,37 @@ export function makeTextures(scene: Phaser.Scene): void {
     a.d(5, 8, PAL.white).r(2, 9, 3, 1, PAL.cloud).d(1, 8, PAL.white).vl(1, 6, 2, PAL.white).d(2, 6, PAL.cloud);
     finish(g, scene, 'hook');
   }
+  makeItemTextures(scene);
+}
+
+/** Treasure, junk and the harpoon, in art pixels (half the world size). */
+function makeItemTextures(scene: Phaser.Scene): void {
+  if (scene.textures.exists('item-chest')) return;
+  const draw = (key: string, w: number, h: number, paint: (a: Art) => void) => {
+    const g = new Pix(0, 0, w, h);
+    paint(new Art(g));
+    finish(g, scene, key);
+  };
+  draw('item-chest', ITEMS.chest.width, ITEMS.chest.height, (a) => {
+    a.r(0, 3, 12, 6, PAL.brown).r(0, 0, 12, 4, PAL.clay).hl(0, 0, 12, PAL.tan);
+    a.vl(2, 0, 9, PAL.amber).vl(9, 0, 9, PAL.amber).hl(0, 3, 12, PAL.bark);
+    a.r(5, 3, 2, 2, PAL.yellow);
+  });
+  draw('item-bottle', ITEMS.bottle.width, ITEMS.bottle.height, (a) => {
+    a.r(2, 0, 1, 2, PAL.clay).r(1, 2, 3, 7, PAL.green).vl(1, 2, 7, PAL.lime);
+    a.r(2, 4, 1, 3, PAL.white);
+  });
+  draw('item-boot', ITEMS.boot.width, ITEMS.boot.height, (a) => {
+    a.r(1, 0, 4, 5, PAL.brown).r(1, 5, 8, 2, PAL.brown).hl(1, 7, 8, PAL.bark);
+    a.vl(1, 0, 7, PAL.clay).d(3, 1, PAL.tan).d(3, 3, PAL.tan);
+  });
+  draw('item-tinCan', ITEMS.tinCan.width, ITEMS.tinCan.height, (a) => {
+    a.r(1, 0, 4, 7, PAL.mist).hl(1, 0, 4, PAL.white).r(1, 2, 4, 3, PAL.rust).d(2, 3, PAL.copper);
+  });
+  draw('harpoon', 6, 22, (a) => {
+    a.vl(1, 3, 8, PAL.cloud).d(1, 10, PAL.mist);
+    a.d(1, 0, PAL.white).r(0, 1, 3, 2, PAL.white);
+  });
 }
 
 function makeHazardTextures(scene: Phaser.Scene): void {

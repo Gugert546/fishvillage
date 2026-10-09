@@ -7,6 +7,7 @@ import { hookBonus } from './services';
 import { fishingStats, save, state, type Quest, type QuestKind } from './state';
 import { baitUnlocked, isUnlocked, levelCap, ownsArea, townLevel } from './town';
 import { dayKey, fishOfTheDay } from './world';
+import { canAfford, spend } from './dev';
 
 type Draft = Omit<Quest, 'id' | 'progress' | 'done' | 'reward'> & { coins: number };
 
@@ -227,8 +228,8 @@ export function claimQuest(q: Quest): boolean {
 
 /** Throws a quest away for a new one, for a small fee. */
 export function swapQuest(q: Quest): boolean {
-  if (q.done || q.daily || state.coins < swapCost()) return false;
-  state.coins -= swapCost();
+  if (q.done || q.daily || !canAfford(swapCost())) return false;
+  spend(swapCost());
   const i = state.quests.indexOf(q);
   state.quests.splice(i, 1);
   const next = newQuest(q.kind);

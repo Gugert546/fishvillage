@@ -8,6 +8,7 @@ import {
   type FishingStats,
   type MerchantItemId,
   type PerkId,
+  type RodId,
   type ProjectId,
   type UpgradeId,
 } from './config';
@@ -114,7 +115,8 @@ export interface GameState {
   perkPointsSeen: number;
   /** Landmarks ever built (each is a perk point, even if moved or sold). */
   landmarks: string[];
-  settings: { sound: boolean; music: boolean };
+  /** devFree: dev builds only, free mode for playtesting (on unless switched off). */
+  settings: { sound: boolean; music: boolean; devFree?: boolean };
   /** The festival going on right now (until a wall-clock time), if any. */
   festival: { until: number; name: string } | null;
   /** Merchant boosts left, in casts. */
@@ -129,6 +131,11 @@ export interface GameState {
   projects: Partial<Record<ProjectId, number>>;
   /** The daily quest's date ("2026-10-08"); a new one is posted when the day changes. */
   dailyDate: string;
+  /** Rods bought at the Tackle Shop, and the one in use. */
+  rods: RodId[];
+  rod: RodId;
+  /** Areas where a bottle's message says the legendary will be waiting on your next cast. */
+  legendHints: AreaId[];
   /** Fishing areas you own a boat for (the Harbor needs none). */
   boats: AreaId[];
   /** Where you fish right now. */
@@ -174,6 +181,9 @@ function freshState(): GameState {
     merchantSeen: -1,
     projects: {},
     dailyDate: '',
+    rods: ['classic'],
+    rod: 'classic',
+    legendHints: [],
     boats: [],
     area: 'harbor',
     buildings: [],

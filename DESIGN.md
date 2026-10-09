@@ -88,7 +88,7 @@ Fish Stands: 2 at level 1, then **+1 per level**. No building can be upgraded pa
 | Warehouse | 3 | +1h offline earnings cap (+1.25h / +1.5h at Lv2/3) |
 | Tavern (max 3) | 4 | +4 happiness to homes within 5 tiles (+5 / +6 at Lv2/3) |
 | Net Maker | 5 | +1 hook capacity |
-| Lighthouse | 6 | +10 m sonar range (+15 / +20 m at Lv2/3): price tags on fish in range, red rings on fish in your path while descending |
+| Lighthouse | 6 | +10 m sonar range (+15 / +20 m at Lv2/3): a ping ring around the hook and red rings on fish and hazards in your path while descending |
 
 ## Waterside buildings
 
@@ -204,21 +204,47 @@ art. In dev the page reloads by itself when a file is added.
 
 ## Plans
 
-**Phase 1 — Boats & fishing areas** ✅ (see above). Balance after playtesting.
+**Phase 1 — Boats & fishing areas** ✅ Open Sea, Coral Reef, Deep Trench, Arctic Waters; one boat each from the Boatyard; hazards per area.
 
-**Phase 2 — Fishing gives what the town can't**
-- ~~Fish logbook / Aquarium~~ ✅
-- ~~One legendary fish per area, shown as a trophy in town~~ ✅
-- ~~Fish as materials: Icehouse crates, orders, fish for upgrades~~ ✅
+**Phase 2 — Fishing gives what the town can't** ✅ Logbook + Aquarium, a legendary per area with trophies, orders and fish needed for upgrades.
 
-**Phase 3 — Long-term goals & money sinks** ✅ (no prestige / resets)
-- Town levels 7–10 with new buildings (Cannery, Export Docks: fish → goods → trade ships).
-- Landmarks: a few very expensive one-off monuments with town-wide bonuses.
-- **Perk tree**: perk points earned from logbook milestones, legendary fish, landmarks and new town levels; spent on permanent perks (sale price, reel speed, offline cap, move-in speed…).
+**Phase 3 — Long-term goals** ✅ Town levels 7–10, Cannery → Export Docks → trade ships, landmarks, perk tree (no prestige / resets).
 
-**Phase 4 — Life & atmosphere** ✅ day/night, weather, daily quest, fish of the day, sound & music. Still open: real art.
+**Phase 4 — Life & atmosphere** ✅ Day/night, weather, fish of the day, daily quest, synthesised sound & music, pixel art restyle (Nordic wharf town, Endesga 32).
 
-**Phase 5 — Ship to iPhone**: Capacitor, Codemagic cloud build, TestFlight (needs the Apple Developer account).
+**Phase 5 — Economy balance** ✅ Mild wages, Town Square festivals, traveling merchant, town projects, barrels with daily fish prices and a market, Fishing Wharf feeding the Cannery, offline earnings at half rate. Ongoing: tune numbers from playtests.
+
+**Phase 6 — Deeper fishing** ✅ (tune from playtests)
+- **Legendary fights**: touching a legendary on the way up starts a fight. The hook stops and the fish thrashes side to side; keep the hook on it (within ~38 px) to fill the green reel bar (5 s). Off the fish, the red tension bar rises; full tension (~2 s) snaps the line and the legendary escapes for the rest of the cast.
+- **Treasure & junk**: a chest on the sea floor (35% per cast, reachable only at full line length): coins (60 × town level × area number, ±30%), sometimes 3 of your best bait or a charm. A bottle near the surface (20%): its note puts an area's legendary in the water on your next cast there. Boots and cans: $1 and a smile. Items take hook space and open on the catch screen.
+- **Rods** (Tackle Shop → Rods, switch on the dock): Harpoon (Lv 3, $3k: a Fire button on the way down spears the first fish below, once a cast, without ending the descent), Magnet Rod (Lv 4, $12k: twice the treasure, pulls it toward the hook), Wide Net (Lv 5, $30k: 60% wider catch on the way up).
+- **Combos**: the same species again and again pays 25% of its price per step (×2 = +25%, ×3 = +50%…), paid on the catch screen.
+
+**Phase 7 — Reasons to return**
+- **Seasons** (one per real week): fish availability shifts, harbor ice in winter, a summer festival.
+- **Weekly fishing tournament**: a target species or total weight, with a trophy and perk-point rewards.
+- **Achievements**: milestones with small rewards and a badge wall in your house.
+
+**Phase 8 — A livelier town**
+- **Tourists**: a Ferry Terminal brings visitors who walk to shops and spend; happiness and landmarks draw more.
+- **Resident requests**: "Ida wants a bench by her home", "Nils wants a job at the Tavern", for small rewards.
+- **Street bonuses**: shops in a row along a road form a "Market Street" with a bonus.
+
+**Phase 9 — Cosmetics** (once the art style has settled)
+- Recolour buildings (wall, roof and trim colours from the palette), boat paint jobs, dock skins.
+- Many more decorations: flower boxes, statues, market stalls, seasonal pieces.
+- Unlocked with coins, achievements, tournament rewards and the merchant.
+
+**Phase 10 — Onboarding & clarity** (once the systems have settled)
+- Guided first steps (first cast, sale, building, worker), then hints as each system unlocks.
+- "?" help on panels (wages, daily prices, orders…).
+- A stats screen: income vs. wages, best catch, totals.
+
+**Phase 11 — Tech & quality of life**
+- Save export/import (a backup code, since iOS can clear localStorage), cloud save later.
+- Haptics, a performance pass on older iPhones, notch/safe-area polish.
+
+**Phase 12 — Ship to iPhone** (on hold): Capacitor, Codemagic cloud build, TestFlight (needs the Apple Developer account).
 
 ## Done so far
 
@@ -228,13 +254,22 @@ art. In dev the page reloads by itself when a file is added.
 4. ~~Passive income + offline earnings (4 h cap)~~
 5. ~~Fishing upgrades sold by shops; shop level caps upgrade level~~
 6. ~~Move buildings (free) and sell them (50% refund of everything spent)~~
-7. ~~Town life A: 14×14 grid (30px tiles), Cottage/Apartment, residents, jobs (auto + staff/priority), worker-based income, closed shops~~
+7. ~~Town life A: grid, Cottage/Apartment, residents, jobs (auto + staff/priority), worker-based income, closed shops~~
 8. ~~Town life B: happiness, decorations with area effect, road painting tool, range preview, income/move-in bonuses~~
 9. ~~Town life C: walking villagers (road-preferring pathfinding), shopkeepers, chimney smoke, lamp/fountain animation~~
 10. ~~Your house & town levels, bait, Fillet House, residents list, service buildings, quests, canals, pier, waterside buildings~~
-   - Open: crisp rendering on high-DPI screens
+11. ~~Boats & fishing areas (Phase 1)~~
+12. ~~Logbook, legendaries, trophies, Aquarium; Icehouse, orders, fish for upgrades (Phase 2)~~
+13. ~~Town levels 7–10, canning & trade, landmarks, perk tree (Phase 3)~~
+14. ~~Day/night, weather, daily quest, fish of the day, sound (Phase 4)~~
+15. ~~Pixel art restyle, Tiny5 font, custom sprite support~~
+16. ~~Wages, festivals, merchant, town projects, barrels & daily prices, Fishing Wharf, half-rate offline (Phase 5)~~
 
 ## Dev tips
 
-- Settings (gear, top-right) has Reset game; in dev builds it also has playtesting tools: +$1k/+$10k/+$100k and Skip 1 hour.
+- Settings (gear, top-right) has Reset game. In dev builds (`npm run dev`) it also has playtesting tools:
+  - **Free mode** (on by default in dev): buildings, upgrades, gear, boats, rods, bait, festivals, projects and merchant goods cost nothing; closed shops still sell; fish and resident requirements for upgrades are skipped. Switch it off to test the real economy. Shipped builds always pay full price.
+  - +$1k / +$10k / +$100k, Skip 1 hour.
+  - **Max town lv** (house to level 10), **Unlock gear** (every boat and rod, fishing upgrades maxed, 20 of each bait), **Legend next** (the legendary waits on your next cast), **Fill barrels** (a random mix of fish from your areas).
+  - Closing Settings on the dock restocks the water, so new gear and "Legend next" apply right away.
 - In dev builds the browser console has `fv.state` / `fv.save()` / `fv.game`, e.g. `fv.state.coins = 5000`.

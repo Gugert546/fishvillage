@@ -4,6 +4,7 @@ import { MERCHANT, MERCHANT_ITEMS, type CharmId, type MerchantItem, type Merchan
 import { queueToast } from './quests';
 import { save, state } from './state';
 import { townLevel } from './town';
+import { canAfford, spend } from './dev';
 
 const periodMs = MERCHANT.everyMinutes * 60_000;
 const slotOf = (now: number) => Math.floor(now / periodMs);
@@ -47,9 +48,9 @@ export function boughtThisVisit(item: MerchantItem, now = Date.now()): boolean {
 
 export function buyItem(item: MerchantItem, now = Date.now()): boolean {
   const price = itemPrice(item);
-  if (!merchantHere(now) || boughtThisVisit(item, now) || state.coins < price) return false;
+  if (!merchantHere(now) || boughtThisVisit(item, now) || !canAfford(price)) return false;
   if (item.limit && bought(item.id) >= item.limit) return false;
-  state.coins -= price;
+  spend(price);
   state.merchantBought[item.id] = bought(item.id) + 1;
   if (state.merchantVisit.slot !== slotOf(now)) state.merchantVisit = { slot: slotOf(now), bought: [] };
   state.merchantVisit.bought.push(item.id);

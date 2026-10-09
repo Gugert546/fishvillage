@@ -3,6 +3,7 @@
 import { FESTIVAL } from './config';
 import { totalIncome } from './happiness';
 import { save, state } from './state';
+import { canAfford, spend } from './dev';
 
 export const festivalActive = (now = Date.now()): boolean => !!state.festival && state.festival.until > now;
 
@@ -21,8 +22,8 @@ export function festivalCost(): number {
 
 export function hostFestival(squareLevel: number): boolean {
   const cost = festivalCost();
-  if (festivalActive() || state.coins < cost) return false;
-  state.coins -= cost;
+  if (festivalActive() || !canAfford(cost)) return false;
+  spend(cost);
   const name = FESTIVAL.names[Math.floor(Math.random() * FESTIVAL.names.length)];
   state.festival = { until: Date.now() + FESTIVAL.minutes(squareLevel) * 60_000, name };
   save();

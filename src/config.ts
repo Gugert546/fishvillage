@@ -96,6 +96,81 @@ export const LEGENDARY = {
   fleeSeconds: 0.45,
 };
 
+/** Hooking a legendary starts a fight: keep the hook on it until the reel bar fills. */
+export const FIGHT = {
+  /** Seconds on the fish to land it. */
+  reelSeconds: 5,
+  /** Seconds off the fish before the line snaps. */
+  snapSeconds: 2.2,
+  /** How close (px) the hook must stay to the fish. */
+  reach: 38,
+  /** How fast the fish thrashes from side to side, px/s. */
+  thrashSpeed: 230,
+};
+
+/** Catching the same species in a row pays this share of its price extra per step (×2 = +25%, ×3 = +50%…). */
+export const COMBO_BONUS = 0.25;
+
+// ---------------------------------------------------------------- Treasure & junk
+
+export type ItemId = 'chest' | 'bottle' | 'boot' | 'tinCan';
+
+export interface ItemDef {
+  id: ItemId;
+  name: string;
+  width: number;
+  height: number;
+  /** Chests lie on the sea floor, bottles bob near the surface, junk drifts anywhere. */
+  where: 'floor' | 'surface' | 'anywhere';
+}
+
+export const ITEMS: Record<ItemId, ItemDef> = {
+  chest: { id: 'chest', name: 'Treasure chest', width: 24, height: 18, where: 'floor' },
+  bottle: { id: 'bottle', name: 'Message in a bottle', width: 10, height: 18, where: 'surface' },
+  boot: { id: 'boot', name: 'Old boot', width: 18, height: 16, where: 'anywhere' },
+  tinCan: { id: 'tinCan', name: 'Rusty can', width: 12, height: 14, where: 'anywhere' },
+};
+
+export const TREASURE = {
+  /** Chance per cast of a chest on the sea floor (only reachable at full line length). */
+  chestChance: 0.35,
+  /** Chance per cast of a bottle near the surface. */
+  bottleChance: 0.2,
+  /** Junk pieces per 100 m of water. */
+  junkPer100m: 1.2,
+  /** Coins in a chest: this × town level × (area number + 1), give or take 30%. */
+  chestCoins: 60,
+  /** Chance a chest also holds bait, and a charm. */
+  chestBaitChance: 0.35,
+  chestCharmChance: 0.1,
+};
+
+// -------------------------------------------------------------------- Rods
+// Sold at the Tackle Shop; one is equipped at a time (switch on the dock).
+
+export type RodId = 'classic' | 'harpoon' | 'magnet' | 'wideNet';
+
+export interface RodDef {
+  id: RodId;
+  name: string;
+  blurb: string;
+  unlockLevel: number;
+  cost: number;
+}
+
+export const RODS: RodDef[] = [
+  { id: 'classic', name: 'Classic Rod', blurb: 'Your trusty old rod', unlockLevel: 1, cost: 0 },
+  { id: 'harpoon', name: 'Harpoon', blurb: 'Tap Fire on the way down to spear the fish below', unlockLevel: 3, cost: 3_000 },
+  { id: 'magnet', name: 'Magnet Rod', blurb: 'Pulls treasure in; twice the treasure', unlockLevel: 4, cost: 12_000 },
+  { id: 'wideNet', name: 'Wide Net', blurb: 'Catch fish 60% wider on the way up', unlockLevel: 5, cost: 30_000 },
+];
+
+export const ROD_BY_ID = Object.fromEntries(RODS.map((r) => [r.id, r])) as Record<RodId, RodDef>;
+
+export const HARPOON = { speed: 900, range: 260 };
+export const MAGNET = { radius: 130, pull: 160, treasureMultiplier: 2 };
+export const WIDE_NET_REACH = 1.6;
+
 /** Completing an area's logbook page (every regular species) makes fish there sell for this much more. */
 export const LOGBOOK_PAGE_BONUS = 0.1;
 

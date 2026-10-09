@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   AREAS,
   BAITS,
+  RODS,
   FISH,
   FESTIVAL,
   PERKS,
@@ -50,7 +51,6 @@ import {
   pinnedWorkers,
   jobSlots,
   residentsOf,
-  shopOpen,
   staffTarget,
   unemployedCount,
   workerCounts,
@@ -102,6 +102,9 @@ import {
 } from '../quests';
 import {
   baitUnlocked,
+  buyRod,
+  ownsRod,
+  rodUnlocked,
   boatUnlocked,
   boatyardOpen,
   buyBoat,
@@ -125,6 +128,7 @@ import {
   placementProblem,
   sellBuilding,
   sellValue,
+  sellsNow,
   setStaff,
   togglePriority,
   townLevel,
@@ -151,6 +155,7 @@ import {
   showToast,
   type Button,
 } from '../ui';
+import { canAfford } from '../dev';
 
 // World layout: grid rows grow upward from y = 0; the shore and dock sit below it.
 const SHORE_H = 40;
@@ -368,7 +373,7 @@ export class TownScene extends Phaser.Scene {
     }
     if (this.ghost) this.refreshGhost();
     if (this.paint) this.autoScrollPaint(dt);
-    this.expandButton?.setEnabledLook(state.coins >= nextExpansionCost(), COLORS.buy);
+    this.expandButton?.setEnabledLook(canAfford(nextExpansionCost()), COLORS.buy);
   }
 
   // ------------------------------------------------------------- World
@@ -1217,7 +1222,7 @@ export class TownScene extends Phaser.Scene {
     const g = this.ghost!;
     const cost = g.moving ? 0 : buildCost(g.def);
     const fits = canPlace(g.def, g.col, g.row, g.moving);
-    const ok = fits && state.coins >= cost;
+    const ok = fits && canAfford(cost);
     g.outline.setStrokeStyle(3, fits ? 0x7cfc9a : 0xff5a5a).setFillStyle(fits ? 0x7cfc9a : 0xff5a5a, 0.25);
     this.placeButton.setEnabledLook(ok, COLORS.buy);
     this.placeButton.setLabel(g.moving ? 'Move here' : `Place $${formatCoins(cost)}`);
@@ -1433,7 +1438,7 @@ export class TownScene extends Phaser.Scene {
         const swap = makeButton(this, btnX, y + 76, 100, 36, `Swap $${cost}`, () => {
           if (swapQuest(q)) this.openQuests();
         }, COLORS.neutral, 14);
-        swap.setEnabledLook(state.coins >= cost, COLORS.neutral);
+        swap.setEnabledLook(canAfford(cost), COLORS.neutral);
         m.add(swap);
       }
       y += cardH;
@@ -1526,7 +1531,7 @@ export class TownScene extends Phaser.Scene {
             this.openProjects(square);
           }
         }, COLORS.buy, 16);
-        btn.setEnabledLook(state.coins >= chunk, COLORS.buy);
+        btn.setEnabledLook(canAfford(chunk), COLORS.buy);
         m.add(btn);
       }
       y += cardH;
@@ -1556,7 +1561,7 @@ export class TownScene extends Phaser.Scene {
           this.openMerchant();
         }
       }, COLORS.buy, 17);
-      btn.setEnabledLook(!got && merchantHere() && state.coins >= price, COLORS.buy);
+      btn.setEnabledLook(!got && merchantHere() && canAfford(price), COLORS.buy);
       m.add(btn);
       y += cardH;
     }
@@ -1658,7 +1663,7 @@ export class TownScene extends Phaser.Scene {
       } else if (water) note = { text: 'Needs water (beside a canal)', color: '#8ecae6' };
       if (note) m.text(110, y + 42, note.text, 12, 0).setColor(note.color).setAlpha(note.alpha ?? 1);
       if (!unlocked) preview.setAlpha(0.35);
-      const affordable = state.coins >= cost;
+      const affordable = canAfford(cost);
       const label = fromMerchant ? 'Merchant' : needsFish ? 'Catch' : !unlocked ? `Lv ${def.unlockLevel}` : maxed ? (def.maxCount === 1 ? 'Built' : 'Max') : cost === 0 ? 'Place' : `$${formatCoins(cost)}`;
       const btn = makeButton(this, GAME_WIDTH - 72, y, 88, 46, label, () => {
         if (!unlocked || maxed || !affordable) return;
@@ -1722,7 +1727,7 @@ export class TownScene extends Phaser.Scene {
       (isDecor ? 70 : 0) +
       (upgradable ? 70 : 0) +
       sells.length * 66 +
-      (def.id === 'baitShop' || def.id === 'boatyard' || def.id === 'aquarium' || def.id === 'icehouse' || def.dockPricePerWorker ? 66 : 0) +
+      (def.id === 'baitShop' || def.id === 'tackleShop' || def.id === 'boatyard' || def.id === 'aquarium' || def.id === 'icehouse' || def.dockPricePerWorker ? 66 : 0) +
       (def.festivals ? 132 : 0) +
       (upgradeNeed(b) ? 22 : 0) +
       130;
@@ -1861,14 +1866,14 @@ export class TownScene extends Phaser.Scene {
             reopen();
           }
         }, COLORS.buy, waiting ? 16 : 18);
-        btn.setEnabledLook(!waiting && fishOk && state.coins >= cost, COLORS.buy);
+        btn.setEnabledLook(!waiting && fishOk && canAfford(cost), COLORS.buy);
         m.add(btn);
       }
       y += (need ? 92 : 70) + extra;
     }
 
     // Fishing gear sold here
-    const open = sells.length > 0 && shopOpen(def.id);
+    const open = sells.length > 0 && sellsNow(def.id);
     for (const up of sells) {
       const level = state.upgrades[up.id];
       const cap = upgradeLevelCap(up);
@@ -1882,7 +1887,7 @@ export class TownScene extends Phaser.Scene {
         const btn = makeButton(this, right, y, 110, 46, label, () => {
           if (buyUpgrade(up)) reopen();
         }, COLORS.buy, open && !locked ? 18 : 15);
-        btn.setEnabledLook(open && !locked && state.coins >= upCost, COLORS.buy);
+        btn.setEnabledLook(open && !locked && canAfford(upCost), COLORS.buy);
         m.add(btn);
       }
       y += 66;
@@ -1913,7 +1918,7 @@ export class TownScene extends Phaser.Scene {
             reopen();
           }
         }, COLORS.buy, 18);
-        host.setEnabledLook(state.coins >= cost, COLORS.buy);
+        host.setEnabledLook(canAfford(cost), COLORS.buy);
         m.add(host);
       }
       y += 66;
@@ -1948,6 +1953,14 @@ export class TownScene extends Phaser.Scene {
       y += 66;
     }
 
+    if (def.id === 'tackleShop') {
+      const owned = state.rods.length - 1;
+      m.text(40, y - 12, 'Rods', 18, 0);
+      m.text(40, y + 14, owned > 0 ? `${owned}/${RODS.length - 1} special rods` : 'Harpoon, Magnet, Wide Net', 14, 0).setAlpha(0.75);
+      m.add(makeButton(this, right, y, 110, 46, 'Rods >', () => this.openRodShop(b), COLORS.primary, 18));
+      y += 66;
+    }
+
     if (def.id === 'boatyard') {
       const boats = AREAS.filter((a) => a.boat);
       const owned = boats.filter(ownsArea).length;
@@ -1974,7 +1987,7 @@ export class TownScene extends Phaser.Scene {
     this.panelFor = undefined;
     const rowH = 84;
     const m = (this.modal = new Modal(this, 170 + BAITS.length * rowH));
-    const open = shopOpen('baitShop');
+    const open = sellsNow('baitShop');
     m.text(GAME_WIDTH / 2, m.top + 30, 'Bait', 26);
     m.text(GAME_WIDTH / 2, m.top + 62, 'One bait is used per cast. Pick it on the dock.', 14).setAlpha(0.8);
 
@@ -1992,11 +2005,44 @@ export class TownScene extends Phaser.Scene {
       const btn = makeButton(this, GAME_WIDTH - 80, y, 100, 46, label, () => {
         if (buyBait(bait)) this.openBaitStore(shop);
       }, COLORS.buy, 18);
-      btn.setEnabledLook(unlocked && open && state.coins >= bait.packCost, COLORS.buy);
+      btn.setEnabledLook(unlocked && open && canAfford(bait.packCost), COLORS.buy);
       m.add(btn);
       y += rowH;
     }
     if (!open) m.text(GAME_WIDTH / 2, y - 16, 'Closed: the Bait Shop needs a shopkeeper.', 14).setColor('#ff8a8a');
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Back', () => this.openBuildingPanel(shop), COLORS.neutral));
+  }
+
+  /** Special rods for sale at the Tackle Shop; switch between them on the dock. */
+  private openRodShop(shop: PlacedBuilding): void {
+    this.closeModal();
+    this.panelFor = undefined;
+    const rods = RODS.filter((r) => r.cost > 0);
+    const rowH = 96;
+    const m = (this.modal = new Modal(this, 170 + rods.length * rowH));
+    const open = sellsNow('tackleShop');
+    m.text(GAME_WIDTH / 2, m.top + 30, 'Rods', 26);
+    m.text(GAME_WIDTH / 2, m.top + 62, 'Pick your rod on the dock', 16).setAlpha(0.8);
+    let y = m.top + 124;
+    for (const rod of rods) {
+      const owned = ownsRod(rod);
+      const unlocked = rodUnlocked(rod);
+      m.text(40, y - 30, rod.name, 18, 0);
+      m.text(40, y - 14, rod.blurb, 16, 0).setOrigin(0, 0).setColor(COLORS.gold).setWordWrapWidth(GAME_WIDTH - 190);
+      if (!unlocked) m.text(40, y + 30, `Unlocks at house level ${rod.unlockLevel}`, 16, 0).setColor('#ffb4a2');
+      const label = owned ? 'Owned' : !unlocked ? `Lv ${rod.unlockLevel}` : !open ? 'Closed' : `$${formatCoins(rod.cost)}`;
+      const btn = makeButton(this, GAME_WIDTH - 84, y - 8, 100, 46, label, () => {
+        if (buyRod(rod)) {
+          sfx.coins();
+          showToast(this, `${rod.name} bought! It's on the dock`);
+          this.openRodShop(shop);
+        }
+      }, COLORS.buy, 18);
+      btn.setEnabledLook(!owned && unlocked && open && canAfford(rod.cost), COLORS.buy);
+      m.add(btn);
+      y += rowH;
+    }
+    if (!open) m.text(GAME_WIDTH / 2, y - 16, 'Closed: the Tackle Shop needs a shopkeeper.', 16).setColor('#ff8a8a');
     m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Back', () => this.openBuildingPanel(shop), COLORS.neutral));
   }
 
@@ -2026,7 +2072,7 @@ export class TownScene extends Phaser.Scene {
       const btn = makeButton(this, GAME_WIDTH - 84, y - 8, 100, 46, label, () => {
         if (buyBoat(area)) this.openBoatStore(yard);
       }, COLORS.buy, 18);
-      btn.setEnabledLook(!owned && unlocked && open && state.coins >= area.cost, COLORS.buy);
+      btn.setEnabledLook(!owned && unlocked && open && canAfford(area.cost), COLORS.buy);
       m.add(btn);
       y += rowH;
     }
@@ -2090,7 +2136,7 @@ export class TownScene extends Phaser.Scene {
           reopen();
         }
       }, COLORS.buy, 18);
-      btn.setEnabledLook(ready && state.coins >= next.cost, COLORS.buy);
+      btn.setEnabledLook(ready && canAfford(next.cost), COLORS.buy);
       m.add(btn);
     } else {
       m.text(GAME_WIDTH / 2, m.top + 176, 'Fully upgraded!', 18).setColor('#8ee88e');
