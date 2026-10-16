@@ -2,8 +2,8 @@
 // and putting each catch into the barrels.
 
 import { FESTIVAL, FISH, FISH_PRICE_BONUS_PER_LEVEL, STORAGE, WORLD, type FishType } from './config';
-import { crateSpace, onIce, storeFish, unstoreFish } from './crates';
-import { festivalBonus } from './festival';
+import { crateSpace, fishDemand, onIce, storeFish, unstoreFish } from './crates';
+import { festivalBonus, recordFishSale } from './festival';
 import { logbookBonus } from './logbook';
 import { useCharm } from './merchant';
 import { landmarkBonus, perkBonus } from './perks';
@@ -67,6 +67,7 @@ export function stowCatch(fish: FishType[]): CatchResult {
     }
   }
   state.coins += result.overflowCoins;
+  recordFishSale(result.overflowCoins);
   if (result.overflowCoins > 0) questEvent({ type: 'sold', coins: result.overflowCoins });
   save();
   return result;
@@ -79,6 +80,7 @@ export function sellFish(entries: [string, number][]): number {
   if (coins === 0) return 0;
   if (useCharm('voucher')) coins = Math.round(coins * 1.5);
   state.coins += coins;
+  recordFishSale(coins);
   questEvent({ type: 'sold', coins });
   save();
   return coins;
@@ -93,5 +95,15 @@ export function stock(): [FishType, number][] {
 }
 
 export const stockValue = (): number => stock().reduce((sum, [type, n]) => sum + salePrice(type) * n, 0);
-export const sellAll = (): number => sellFish(stock().map(([type, n]) => [type.id, n]));
+/** What's in the barrels beyond the fish the town still needs (see fishDemand). */
+export function spareStock(demand = fishDemand()): [FishType, number][] {
+  return stock()
+    .map(([type, n]): [FishType, number] => [type, Math.max(0, n - (demand.get(type.id)?.amount ?? 0))])
+    .filter(([, n]) => n > 0);
+}
+
+export const spareValue = (demand = fishDemand()): number => spareStock(demand).reduce((sum, [type, n]) => sum + salePrice(type) * n, 0);
+
+/** Sells everything except the fish the town still needs. */
+export const sellSpare = (): number => sellFish(spareStock().map(([type, n]) => [type.id, n]));
 export const sellType = (type: FishType): number => sellFish([[type.id, onIce(type.id)]]);

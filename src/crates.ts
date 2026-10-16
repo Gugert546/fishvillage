@@ -15,7 +15,7 @@ import {
 import { defOf, workerCounts } from './population';
 import { queueToast } from './quests';
 import { fishingStats, save, state, type Order, type PlacedBuilding } from './state';
-import { ownsArea, townLevel } from './town';
+import { buildingName, levelCap, ownsArea, townLevel } from './town';
 import { isWorking, wateredTiles } from './water';
 import { freeMode } from './dev';
 import { perkBonus } from './perks';
@@ -81,6 +81,36 @@ export function payUpgradeFish(b: PlacedBuilding): boolean {
   return !need || useFish(need);
 }
 
+/** How many of one fish are still wanted, and by whom (e.g. "House", "Gull Fish Stand"). */
+export interface FishDemand {
+  amount: number;
+  by: string[];
+}
+
+/**
+ * Fish the town still wants: the house's next level, upgrades the buildings could take now, and
+ * open orders. The Barrels keep these when you sell everything.
+ */
+export function fishDemand(): Map<string, FishDemand> {
+  const out = new Map<string, FishDemand>();
+  const want = (fish: string, amount: number, by: string) => {
+    const d = out.get(fish) ?? { amount: 0, by: [] };
+    d.amount += amount;
+    d.by.push(by);
+    out.set(fish, d);
+  };
+  for (const b of state.buildings) {
+    if (b.level >= levelCap(b)) continue;
+    const need = upgradeNeed(b);
+    if (need) want(need.fish, need.amount, b.type === 'playerHouse' ? 'House' : buildingName(b));
+  }
+  for (const o of state.orders) {
+    const b = state.buildings.find((x) => x.id === o.building);
+    want(o.fish, o.amount, b ? `${buildingName(b)} order` : 'Order');
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------ Orders
 
 export const ordersUnlocked = (): boolean => townLevel() >= ORDERS.unlockLevel;
@@ -136,7 +166,7 @@ export function orderBuilding(o: Order): PlacedBuilding | undefined {
 
 export function orderTitle(o: Order): string {
   const b = orderBuilding(o);
-  return `${b ? defOf(b).name : 'Someone'} wants ${o.amount} ${fishName(o.fish)}`;
+  return `${b ? buildingName(b) : 'Someone'} wants ${o.amount} ${fishName(o.fish)}`;
 }
 
 export const canDeliver = (o: Order): boolean => hasFish({ fish: o.fish, amount: o.amount });

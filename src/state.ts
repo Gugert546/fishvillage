@@ -33,6 +33,8 @@ export interface PlacedBuilding {
   priority?: boolean;
   /** Orders this building has received; each one raises its income for good. */
   deliveries?: number;
+  /** Homes and workplaces you can own several of: a name of its own, e.g. "Gull Fish Stand". */
+  name?: string;
 }
 
 /** A building asking for fish from the Icehouse. */
@@ -172,6 +174,8 @@ export interface GameState {
   decorNotice: boolean;
   /** Arrangement types built at least once (the Town Planner's Book). */
   arrangementsFound: ArrangementId[];
+  /** Recent fish sales as [time, coins], for pricing festivals by what you earn. */
+  fishSales: [number, number][];
 }
 
 function freshState(): GameState {
@@ -223,6 +227,7 @@ function freshState(): GameState {
     decorRefundUntil: 0,
     decorNotice: false,
     arrangementsFound: [],
+    fishSales: [],
   };
 }
 

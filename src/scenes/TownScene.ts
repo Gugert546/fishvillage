@@ -133,6 +133,7 @@ import {
   placeBuilding,
   placementProblem,
   sellBuilding,
+  buildingName,
   sellValue,
   sellsNow,
   setStaff,
@@ -285,6 +286,8 @@ export class TownScene extends Phaser.Scene {
   private rangeGfx!: Phaser.GameObjects.Graphics;
   private rangeLabels: Phaser.GameObjects.Text[] = [];
   private buildTab: BuildTab = 'homes';
+  /** How the residents list is sorted (kept while the game runs). */
+  private residentSort: 'name' | 'job' | 'mood' | 'home' = 'name';
   private villagers!: Villagers;
   private questButton!: Button;
   private questBadge!: Phaser.GameObjects.Container;
@@ -1421,11 +1424,9 @@ export class TownScene extends Phaser.Scene {
 
   // ------------------------------------------------------------ Residents
 
-  /** "Fish Stand", or "Fish Stand #2" when there's more than one. */
+  /** "Gull Fish Stand": each home and workplace has a name of its own. */
   private buildingLabel(b: PlacedBuilding): string {
-    const same = state.buildings.filter((x) => x.type === b.type).sort((a, z) => a.id - z.id);
-    const def = defOf(b);
-    return same.length > 1 ? `${def.name} #${same.indexOf(b) + 1}` : def.name;
+    return buildingName(b);
   }
 
   private leaveModes(): void {
@@ -1435,15 +1436,15 @@ export class TownScene extends Phaser.Scene {
   }
 
   /** Paged list layout shared by the residents list and the job picker. */
-  private pagedModal(title: string, subtitle: string, count: number, rowH: number, page: number) {
+  private pagedModal(title: string, subtitle: string, count: number, rowH: number, page: number, header = 0) {
     const height = Math.min(GAME_HEIGHT - 110, 780);
-    const perPage = Math.max(1, Math.floor((height - 230) / rowH));
+    const perPage = Math.max(1, Math.floor((height - 230 - header) / rowH));
     const pages = Math.max(1, Math.ceil(count / perPage));
     const p = Math.min(page, pages - 1);
     const m = (this.modal = new Modal(this, height));
     m.text(GAME_WIDTH / 2, m.top + 30, title, 26);
     m.text(GAME_WIDTH / 2, m.top + 62, subtitle, 14).setAlpha(0.8);
-    return { m, from: p * perPage, to: Math.min(count, (p + 1) * perPage), page: p, pages, firstY: m.top + 100 + rowH / 2 };
+    return { m, from: p * perPage, to: Math.min(count, (p + 1) * perPage), page: p, pages, firstY: m.top + 100 + header + rowH / 2 };
   }
 
   private pageControls(m: Modal, page: number, pages: number, go: (p: number) => void, onClose: () => void, closeLabel = 'Close'): void {
@@ -1462,13 +1463,45 @@ export class TownScene extends Phaser.Scene {
   /** Everyone in town: name, job and mood. Tap someone to choose where they work. */
   private openResidents(page = 0): void {
     this.leaveModes();
-    const residents = [...state.residents].sort((a, z) => a.name.localeCompare(z.name));
+    const moods = happinessByResident();
+    const nameOf = (id: number | null) => {
+      const b = id === null ? undefined : state.buildings.find((x) => x.id === id);
+      return b ? buildingName(b) : '';
+    };
+    // Sorted by the chosen key, then by name. No job sorts first; unhappiest first.
+    const key: Record<typeof this.residentSort, (r: Resident) => string | number> = {
+      name: () => 0,
+      job: (r) => nameOf(r.job),
+      mood: (r) => moods.get(r.id) ?? 50,
+      home: (r) => nameOf(r.home),
+    };
+    const by = key[this.residentSort];
+    const residents = [...state.residents].sort((a, z) => {
+      const ka = by(a);
+      const kz = by(z);
+      const c = typeof ka === 'number' && typeof kz === 'number' ? ka - kz : String(ka).localeCompare(String(kz));
+      return c !== 0 ? c : a.name.localeCompare(z.name);
+    });
     const jobless = residents.filter((r) => r.job === null).length;
     const subtitle = residents.length === 0 ? 'Build homes and people will move in.' : `${residents.length} residents · ${jobless} without a job`;
     const rowH = 58;
-    const list = this.pagedModal('Residents', subtitle, residents.length, rowH, page);
+    const list = this.pagedModal('Residents', subtitle, residents.length, rowH, page, 44);
     const { m } = list;
-    const moods = happinessByResident();
+
+    const sorts: [typeof this.residentSort, string][] = [
+      ['name', 'Name'],
+      ['job', 'Job'],
+      ['mood', 'Mood'],
+      ['home', 'Home'],
+    ];
+    sorts.forEach(([id, label], i) => {
+      const btn = makeButton(this, GAME_WIDTH / 2 + (i - 1.5) * 92, m.top + 102, 86, 34, label, () => {
+        this.residentSort = id;
+        this.openResidents(0);
+      }, COLORS.primary, 14);
+      btn.setEnabledLook(id === this.residentSort, COLORS.primary);
+      m.add(btn);
+    });
 
     let y = list.firstY;
     for (const r of residents.slice(list.from, list.to)) {
@@ -1479,8 +1512,9 @@ export class TownScene extends Phaser.Scene {
       row.add(makeText(this, 80, y - 10, r.name, 18).setOrigin(0, 0.5));
       const jobText = work ? this.buildingLabel(work) : 'No job';
       // Keep it to one line: hand-picked jobs say so, which leaves less room for the home.
-      const homeText = home ? (r.pinned ? ` · ${this.buildingLabel(home)}` : ` · lives in ${this.buildingLabel(home)}`) : '';
-      const detail = `${jobText}${r.pinned ? ' (set by you)' : ''}${homeText}`;
+      const homeText = home ? ` · ${this.buildingLabel(home)}` : '';
+      const full = `${jobText}${r.pinned ? ' (set by you)' : ''}${homeText}`;
+      const detail = full.length > 46 ? `${full.slice(0, 44)}..` : full;
       row.add(makeText(this, 80, y + 13, detail, 13).setOrigin(0, 0.5).setColor(work ? COLORS.gold : '#ff8a8a'));
       const mood = Math.round(moods.get(r.id) ?? 50);
       const moodColor = mood >= 65 ? '#8ee88e' : mood < 35 ? '#ff8a8a' : '#ffffff';
@@ -1666,7 +1700,7 @@ export class TownScene extends Phaser.Scene {
       m.add(this.add.rectangle(46, y + 48, Math.max(2, (barW * have) / o.amount), 14, ready ? COLORS.complete : COLORS.progress).setOrigin(0, 0.5));
       m.text(46 + barW + 8, y + 48, `${have}/${o.amount} on ice`, 13, 0).setAlpha(0.85);
       const b = orderBuilding(o);
-      const boost = b ? ` + ${b ? defOf(b).name : ''} +${ORDERS.boostPerDelivery * 100}%` : '';
+      const boost = b ? ` + ${buildingName(b)} +${ORDERS.boostPerDelivery * 100}%` : '';
       m.text(46, y + 78, `$${formatCoins(o.coins)}${boost}`, 14, 0).setColor(COLORS.gold);
       const btnX = GAME_WIDTH - 86;
       if (ready) {
@@ -1939,7 +1973,9 @@ export class TownScene extends Phaser.Scene {
     const right = GAME_WIDTH - 90;
     const moods = happinessByResident();
 
-    m.text(GAME_WIDTH / 2, m.top + 32, upgradable ? `${def.name}  ·  Lv ${b.level}` : def.name, 24);
+    const title = upgradable ? `${buildingName(b)}  ·  Lv ${b.level}` : buildingName(b);
+    // Long names ("Driftwood Seafood Restaurant") get a smaller title so they fit.
+    m.text(GAME_WIDTH / 2, m.top + 32, title, title.length > 24 ? 19 : 24);
     m.text(GAME_WIDTH / 2, m.top + 64, def.description, 14)
       .setAlpha(0.8)
       .setAlign('center')
@@ -2512,7 +2548,7 @@ export class TownScene extends Phaser.Scene {
     if (homeless > 0) notes.push('Residents move to free homes, or leave town.');
     const m = (this.modal = new Modal(this, 220 + notes.length * 30));
 
-    m.text(GAME_WIDTH / 2, m.top + 36, `Sell ${def.name}?`, 26);
+    m.text(GAME_WIDTH / 2, m.top + 36, `Sell ${buildingName(b)}?`, 26);
     m.text(GAME_WIDTH / 2, m.top + 80, `You get $${formatCoins(value)} back.`, 18).setColor(COLORS.gold);
     notes.forEach((n, i) => m.text(GAME_WIDTH / 2, m.top + 112 + i * 28, n, 15).setAlpha(0.8));
     const buttonsY = m.top + m.height - 44;

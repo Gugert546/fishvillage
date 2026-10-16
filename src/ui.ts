@@ -5,8 +5,8 @@ import { townLevel } from './town';
 import { incomePerMinute, skipTime, takeOfflineReport } from './economy';
 import { townHappiness } from './happiness';
 import { discovered, legendOf, pageComplete, pageProgress, regularFish, speciesCount, totalSpecies } from './logbook';
-import { crateCapacity, cratesUsed } from './crates';
-import { dailyFactor, priceBonuses, salePrice, sellAll, sellType, stock, stockValue } from './market';
+import { crateCapacity, cratesUsed, fishDemand } from './crates';
+import { dailyFactor, priceBonuses, salePrice, sellSpare, sellType, spareValue, stock, stockValue } from './market';
 import { housingCapacity } from './population';
 import { resetGame, save, state } from './state';
 import { setMusic, setSound, sfx } from './sound';
@@ -640,13 +640,21 @@ export function openMarket(scene: Phaser.Scene, setModal: (m: Modal | undefined)
     .setAlign('center')
     .setWordWrapWidth(GAME_WIDTH - 70);
 
+  const demand = fishDemand();
   let y = m.top + 146;
   if (items.length === 0) m.text(GAME_WIDTH / 2, y + 20, 'Empty. Go catch something!', 16).setAlpha(0.7);
   for (const [type, n] of items.slice(p * perPage, (p + 1) * perPage)) {
     const img = scene.add.image(54, y, `fish-${type.id}`);
     m.add(img.setScale(Math.min(0.8, 48 / img.width)));
-    const name = m.text(84, y, `${type.name} ×${n}`, 16, 0);
+    // Fish the town still needs say who for, e.g. "need 10 · House +1".
+    const need = demand.get(type.id);
+    const name = m.text(84, need ? y - 8 : y, `${type.name} ×${n}`, 16, 0);
     if (type.legendary) name.setColor(COLORS.gold);
+    if (need) {
+      const more = need.by.length > 1 ? ` +${need.by.length - 1}` : '';
+      const who = need.by[0].length > 18 ? `${need.by[0].slice(0, 17)}..` : need.by[0];
+      m.text(84, y + 11, `need ${need.amount} · ${who}${more}`, 12, 0).setColor('#8ecae6');
+    }
     const factor = dailyFactor(type.id);
     const trend = factor >= 1.05 ? ' ^' : factor <= 0.95 ? ' v' : '';
     m.text(GAME_WIDTH - 128, y, `$${salePrice(type)}${trend}`, 16, 1).setColor(factor >= 1.05 ? '#63c74d' : factor <= 0.95 ? '#f6757a' : '#ffffff');
@@ -668,14 +676,18 @@ export function openMarket(scene: Phaser.Scene, setModal: (m: Modal | undefined)
     next.setEnabledLook(p < pages - 1, COLORS.neutral);
     m.add(prev, next);
   }
-  const all = makeButton(scene, GAME_WIDTH / 2, footY, 200, 44, `Sell all $${formatCoins(stockValue())}`, () => {
-    const coins = sellAll();
+  // Sell all keeps what the town needs; a row's own button sells that fish anyway.
+  const spare = spareValue(demand);
+  const keeping = spare < stockValue();
+  if (keeping) m.text(GAME_WIDTH / 2, footY - 36, 'Sell all keeps the fish you need', 13).setAlpha(0.7);
+  const all = makeButton(scene, GAME_WIDTH / 2, footY, 200, 44, `Sell all $${formatCoins(spare)}`, () => {
+    const coins = sellSpare();
     if (coins > 0) {
       sfx.coins();
       showToast(scene, `+$${formatCoins(coins)}`);
     }
     reopen(0);
   }, COLORS.buy, 16);
-  all.setEnabledLook(items.length > 0, COLORS.buy);
+  all.setEnabledLook(spare > 0, COLORS.buy);
   m.add(all, makeButton(scene, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', close, COLORS.neutral));
 }

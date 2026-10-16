@@ -49,6 +49,7 @@ import { sfx } from '../sound';
 import { fishOfTheDay, isNight, weather } from '../world';
 import { useCharm } from '../merchant';
 import { projectDone } from '../projects';
+import { recordFishSale } from '../festival';
 import {
   COLORS,
   Modal,
@@ -490,7 +491,10 @@ export class FishingScene extends Phaser.Scene {
     );
     this.barrelsButton = hud(
       makeButton(this, 62, 124, 104, 36, '', () => {
-        if (this.phase === 'idle' && !this.modal) openMarket(this, (m) => (this.modal = m), 0, () => this.refreshHud());
+        if (this.phase === 'idle' && !this.modal) openMarket(this, (m) => (this.modal = m), 0, () => {
+          this.refreshHud();
+          this.refreshAreaButton();
+        });
       }, COLORS.neutral, 14),
     );
     this.areaButton = hud(
@@ -711,6 +715,7 @@ export class FishingScene extends Phaser.Scene {
     questEvent({ type: 'cast', fish: this.caught.map((f) => f.type.id) });
     const rewards = this.caughtItems.map((i) => openItem(i.def.id, this.area));
     state.coins += this.combo.bonus;
+    recordFishSale(this.combo.bonus);
     // Everything goes into the barrels; what doesn't fit is sold cheaply on the spot.
     const stowed = stowCatch(this.caught.map((f) => f.type));
     this.refreshHud();

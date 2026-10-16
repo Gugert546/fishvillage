@@ -14,9 +14,27 @@ export function festivalMinutesLeft(now = Date.now()): number {
   return festivalActive(now) ? Math.ceil((state.festival!.until - now) / 60_000) : 0;
 }
 
-/** About ten minutes of the town's income, with a floor for small towns. */
+/** Notes coins from selling fish, so festivals cost what a fishing-heavy player earns too. */
+export function recordFishSale(coins: number, now = Date.now()): void {
+  if (coins <= 0) return;
+  const since = now - FESTIVAL.fishingWindowMinutes * 60_000;
+  state.fishSales = state.fishSales.filter(([t]) => t >= since);
+  state.fishSales.push([now, coins]);
+}
+
+/** Average coins per minute from fish sales over the last little while. */
+export function fishingPerMinute(now = Date.now()): number {
+  const since = now - FESTIVAL.fishingWindowMinutes * 60_000;
+  const coins = state.fishSales.reduce((sum, [t, c]) => (t >= since ? sum + c : sum), 0);
+  return coins / FESTIVAL.fishingWindowMinutes;
+}
+
+/** About ten minutes of everything you earn (town and fishing), with a floor for small towns. */
 export function festivalCost(): number {
-  const perMinute = totalIncome() / (1 + festivalBonus(FESTIVAL.income));
+  // Without the festival's own boosts, so the price doesn't climb while one is on.
+  const town = totalIncome() / (1 + festivalBonus(FESTIVAL.income));
+  const fishing = fishingPerMinute() / (1 + festivalBonus(FESTIVAL.fishPrice));
+  const perMinute = town + fishing;
   return Math.max(FESTIVAL.minCost, Math.round((perMinute * FESTIVAL.costMinutes) / 50) * 50);
 }
 

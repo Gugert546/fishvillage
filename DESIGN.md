@@ -28,6 +28,8 @@ Deeper zones (Shallows → Open Water → The Deep → Abyss) hold rarer, faster
 | Lucky Lure | ignore N hits on the way down | Bait Shop |
 | Sonar | see fish below | Lighthouse |
 
+Each Tackle Shop level allows 2 more levels of Longer Line and Bigger Hook (2 of Faster Reel).
+
 ### Bait
 
 Bought in packs of 5 at the Bait Shop (needs a shopkeeper); one is used per cast. Pick it with the bait button on the dock. Bait only lures fish (more fish overall, and some species much more often); it no longer changes sale prices.
@@ -43,7 +45,7 @@ Bought in packs of 5 at the Bait Shop (needs a shopkeeper); one is used per cast
 
 - Every catch goes into **barrels on the dock** (50 fish from the start; the Icehouse adds +100 / +250 / +500; Cold Storage perk +25% per rank). Pricier fish get the space first; whatever doesn't fit is sold on the spot at **50%**.
 - **Daily prices**: each species has its own price for the day, 60–160% of normal (the fish of the day gets +50% on top). Shown with `^` / `v` on the catch screen and in the market.
-- **Selling**: the catch screen has *Sell* (this catch) or *Keep*. The **Barrels** button on the dock (and the Icehouse / Fish Market panels in town) opens the market: sell one species or everything.
+- **Selling**: the catch screen has *Sell* (this catch) or *Keep*. The **Barrels** button on the dock (and the Icehouse / Fish Market panels in town) opens the market: sell one species, or everything except the fish the town still needs (house level, building upgrades the shop levels allow, open orders). Needed fish are tagged, e.g. "need 10 · House".
 - Price bonuses apply **when you sell**: house level, Fish Market, perks & Fisher Statue, storm, festival & Fish Auction, logbook page. A Market Voucher adds +50% to one whole sale. So it pays to wait for a good day, a storm or a festival.
 - Orders and upgrades take fish from the same barrels. The Cannery never does: it's fed by the Fishing Wharf.
 
@@ -64,7 +66,7 @@ The Build menu lists each tab's buildings in the order they unlock.
 
 All passive income is designed and shown **per minute** (a Lv1 Fish Stand worker earns $6/min); fishing is the main early income. Town expansions start at $10k (×1.5 each).
 
-Offline earnings accrue while closed at **half** the usual rate, capped (4 h, raised by the Warehouse, perks and the Railway).
+Offline earnings accrue while closed at **half** the usual rate, capped (8 h, so a night counts; raised by the Warehouse, perks and the Railway).
 
 ## Your house & town level
 
@@ -75,9 +77,12 @@ Every game starts with your own house above the dock (movable, not sellable). It
 | 1 | start | – | Cottage, Fish Stand, Tackle Shop, Road, Flower Bed, Tree |
 | 2 | $300 | 2 residents | Quests, Bait Shop, Bench |
 | 3 | $1,500 | 6 residents | Apartment, Lamp Post, Fillet House, Warehouse |
-| 4 | $6,000 | 12 residents | Fountain, Tavern |
-| 5 | $20,000 | 24 residents | Net Maker |
-| 6 | $60,000 | 40 residents | Lighthouse |
+| 4 | $4,000 | 12 residents, 10 Salmon | Fountain, Tavern |
+| 5 | $10,000 | 20 residents, 8 Tuna | Net Maker |
+| 6 | $350,000 | 40 residents, 5 Anglerfish | Lighthouse |
+| 7–10 | $1.1M / $2.7M / $5.5M / $9M | 50–80 residents, boat fish | see *Late game* |
+
+**Pacing:** up to level 5 fishing is the main income and the levels come within the first sessions. From level 6 each level costs about a day of the town's passive income, so progress mostly comes overnight (lots of fishing works too, more slowly). Fish Stand, Fisherman's Hut and Seafood Restaurant income grows 30% per building level (wages only 15%), so the town outgrows fishing after level 5. Simulated in `scripts/sim/` (see PLAYTEST-SIM.md).
 
 Fish Stands: 2 at level 1, then **+1 per level**. No building can be upgraded past the town level.
 
@@ -117,9 +122,10 @@ Kinds: catch N of a fish · fill the hook in one cast · earn $N from fishing ·
 **Houses → residents → jobs → income.** Decorations and roads → happiness → bonuses.
 
 - **Housing:** Cottage (2×2 tiles, 2 residents), Apartment (4×4, 6 residents, more per level). Roads and decorations will be 1×1. Residents move in gradually while there's free housing; higher happiness = faster move-ins.
+- **Names:** every home and workplace you can own several of gets a name of its own when built ("Gull Fish Stand", "Oak Cottage"), used in its panel, the residents list, job picker and orders.
 - **Jobs:** workplaces have job slots that grow with level. No workers = no income; each worker adds a share. Tackle/Bait Shops are **closed** (no gear sales) without a shopkeeper.
 - **Assignment:** automatic, but jobs stick: a resident who has a job keeps it until you move them. Open slots go to the unemployed (⭐ priority workplaces first). A job only ends if its building is sold or you lower its staff `[−][+]` (the newest auto-hired leave first).
-- **Residents list:** tap the population counter in the top bar. Shows name, job, home and mood; tap a resident to pick their job (Auto / No job / a workplace). Hand-picked jobs are pinned: auto-assignment works around them and may bump auto workers to make room.
+- **Residents list:** tap the population counter in the top bar. Shows name, job, home and mood, sorted by Name, Job, Mood (unhappiest first) or Home; tap a resident to pick their job (Auto / No job / a workplace). Hand-picked jobs are pinned: auto-assignment works around them and may bump auto workers to make room.
 - **Happiness (0–100%):** per house, averaged over residents. Base 35, road next to home +5, job +10 (−10 without), waterfront +5, town-wide boosts. Plus surroundings (decorations, Taverns, the square…), with distance falloff, less for repeats of a type and diminishing returns. Minus smell and noise from some harbour buildings, softened by trees touching the home (see Phase 8). The placement preview shows what each nearby home really gains or loses.
 - **Roads:** bonus only, never required. Villagers walk along them.
 - **Canals:** painted like roads ($10/tile, full refund). Water only flows in through canals connected to the shore (bottom row, where they pass under a little bridge in the boardwalk); unconnected stretches stay dry ditches. Homes beside water get +5 happiness. **Bridges** ($25) go over canals so villagers can cross.
@@ -135,9 +141,9 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 |---|---|---|---|---|---|
 | Harbor | – | 1 | – | – | Sardine → Anglerfish |
 | Open Sea | Fishing Boat | 5 | $25k | **Sharks**: stop the line on the way down, bite a fish off the hook on the way up | fast fish, Marlin |
-| Coral Reef | Catamaran | 5 | $90k | **Jellyfish**: sting = hook stunned for a moment | packed with colourful fish |
-| Deep Trench | Trawler | 6 | $300k | **Darkness**: you only see near the hook (Lighthouse sonar still tags fish) | winch adds +120 m line, Coelacanth |
-| Arctic Waters | Icebreaker | 6 | $1M | **Ice floes**: block the line on the way down (Lucky Lure doesn't help) | priciest fish, Ghost Fish |
+| Coral Reef | Catamaran | 7 | $90k | **Jellyfish**: sting = hook stunned for a moment | packed with colourful fish |
+| Deep Trench | Trawler | 8 | $300k | **Darkness**: you only see near the hook (Lighthouse sonar still tags fish) | winch adds +120 m line, Coelacanth |
+| Arctic Waters | Icebreaker | 9 | $1M | **Ice floes**: block the line on the way down (Lucky Lure doesn't help) | priciest fish, Ghost Fish |
 
 ## Logbook, legendaries & the Aquarium
 
@@ -172,7 +178,7 @@ Every area beyond the Harbor needs its own boat, bought at the **Boatyard** (tow
 ## Spending: wages, festivals, the merchant & town projects
 
 - **Wages** (mild): each worker costs 15% of what a typical worker at that building's tier earns (services pay 60% of that), +15% per building level. The top bar shows income after wages (red if negative); coins never drop below $0. Building panels list the wage per worker.
-- **Town Square** (Lv 2, 4×4, +8 mood within 4 tiles): host a **festival** for ~10 minutes of town income (min $150). It lasts 30/40/50 min (Square Lv 1/2/3): +25% income, +15 happiness, fish +15%, move-ins ×2, bunting, stalls, confetti and bouncier music.
+- **Town Square** (Lv 2, 4×4, +8 mood within 4 tiles): host a **festival** for ~10 minutes of income: town income plus your average fish sales over the last 30 min (min $150). It lasts 30/40/50 min (Square Lv 1/2/3): +25% income, +15 happiness, fish +15%, move-ins ×2, bunting, stalls, confetti and bouncier music.
 - **Traveling merchant** (Lv 3): calls every 90 min and stays 30 (a purple boat at the pier; tap it). Three goods per visit, one of each: Golden Lure (next cast's legendary is waiting), Market Voucher (+50% on your next fish sale), Golden Net (+3 hook for 10 casts), Ancient Chart (+1 perk point; $250k, $500k, $750k; max 3), and merchant-only decor (Exotic Palm, Golden Anchor, Koi Pond). Prices grow with town level.
 - **Town projects** (Town Square → Board, paid in 10 parts): Weather Station (Lv 4, $50k, rain 60% more fish), Breakwater (Lv 5, $200k, boats sail in storms), Railway Station (Lv 6, $500k, +4h offline, move-ins +25%), Fish Auction (Lv 7, $1M, fish +10%), Trade Office (Lv 8, $2.5M, orders & ships +20%).
 - Cosmetics wait for the real art style. Storm damage was considered and dropped (feels unfair).
@@ -281,6 +287,7 @@ art. In dev the page reloads by itself when a file is added.
 **Phase 9 — Cosmetics** (once the art style has settled)
 - Recolour buildings (wall, roof and trim colours from the palette), boat paint jobs, dock skins.
 - Many more decorations: flower boxes, statues, market stalls, seasonal pieces.
+- Rotate buildings (and decorations) when placing or moving them, so fronts can face the road. Non-square buildings swap width and height.
 - Unlocked with coins, achievements, tournament rewards and the merchant.
 
 **Phase 10 — Reasons to return**
@@ -320,6 +327,7 @@ art. In dev the page reloads by itself when a file is added.
 17. ~~Legendary fights, treasure & junk, rods, combos, dev playtesting tools (Phase 6)~~
 18. ~~Tourists & Ferry Terminal, resident requests, market streets, sticky jobs (Phase 7)~~
 19. ~~Decoration rework: falloff, variety, diminishing returns, nuisances, arrangements, Town Planner's Book (Phase 8)~~
+20. ~~Rebalance for daily play (passive income from level 5), building names, residents sorting, needed fish in Barrels~~
 
 ## Dev tips
 

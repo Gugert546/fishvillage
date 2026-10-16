@@ -1,6 +1,6 @@
 {
   "name": "fishvillage",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Fish from the dock, sell your catch, and build a village.",
   "scripts": {
     "dev": "vite --host",

@@ -227,7 +227,7 @@ export const AREAS: AreaDef[] = [
     ],
   },
   {
-    id: 'reef', name: 'Coral Reef', boat: 'Catamaran', blurb: 'Packed with fish. Jellyfish sting!', unlockLevel: 5, cost: 90_000, depth: 220, lineBonus: 0, density: 2.6, sky: 0xb5ecf5,
+    id: 'reef', name: 'Coral Reef', boat: 'Catamaran', blurb: 'Packed with fish. Jellyfish sting!', unlockLevel: 7, cost: 90_000, depth: 220, lineBonus: 0, density: 2.6, sky: 0xb5ecf5,
     hazard: { kind: 'jelly', perTenM: 0.5, minDepth: 10 }, hull: 0xffffff, cabin: 0xe76f51,
     zones: [
       { name: 'Lagoon', from: 0, color: 0x3ed3d0 },
@@ -236,7 +236,7 @@ export const AREAS: AreaDef[] = [
     ],
   },
   {
-    id: 'trench', name: 'Deep Trench', boat: 'Trawler', blurb: 'Pitch dark, very deep. Winch: +120 m line', unlockLevel: 6, cost: 300_000, depth: 400, lineBonus: 120, density: 1.5, sky: 0x7d93a8,
+    id: 'trench', name: 'Deep Trench', boat: 'Trawler', blurb: 'Pitch dark, very deep. Winch: +120 m line', unlockLevel: 8, cost: 300_000, depth: 400, lineBonus: 120, density: 1.5, sky: 0x7d93a8,
     dark: true, hull: 0x3d5a80, cabin: 0xe0e1dd,
     zones: [
       { name: 'Surface', from: 0, color: 0x1f5f8b },
@@ -246,7 +246,7 @@ export const AREAS: AreaDef[] = [
     ],
   },
   {
-    id: 'arctic', name: 'Arctic Waters', boat: 'Icebreaker', blurb: 'Priciest fish. Ice floes block your line!', unlockLevel: 6, cost: 1_000_000, depth: 280, lineBonus: 0, density: 1.6, sky: 0xdcebf5,
+    id: 'arctic', name: 'Arctic Waters', boat: 'Icebreaker', blurb: 'Priciest fish. Ice floes block your line!', unlockLevel: 9, cost: 1_000_000, depth: 280, lineBonus: 0, density: 1.6, sky: 0xdcebf5,
     hazard: { kind: 'ice', perTenM: 0.4, minDepth: 8 }, hull: 0xc1121f, cabin: 0xf1f1f1,
     zones: [
       { name: 'Ice Shelf', from: 0, color: 0x6fb7d9 },
@@ -357,7 +357,7 @@ export const UPGRADES: UpgradeDef[] = [
     costGrowth: 1.6,
     maxLevel: 16,
     shop: 'tackleShop',
-    levelsPerShopLevel: 4,
+    levelsPerShopLevel: 2,
     apply: (s, l) => (s.lineLength += l * 15),
   },
   {
@@ -368,7 +368,7 @@ export const UPGRADES: UpgradeDef[] = [
     costGrowth: 1.55,
     maxLevel: 20,
     shop: 'tackleShop',
-    levelsPerShopLevel: 4,
+    levelsPerShopLevel: 2,
     apply: (s, l) => (s.capacity += l),
   },
   {
@@ -418,7 +418,7 @@ export const expansionCost = (expansions: number) => Math.round(10_000 * Math.po
 export const SELL_REFUND = 0.5;
 
 /** Passive income keeps accruing while the game is closed, up to this long. */
-export const OFFLINE_CAP_HOURS = 4;
+export const OFFLINE_CAP_HOURS = 8;
 /** While you're away the town earns at this share of its usual rate. */
 export const OFFLINE_RATE = 0.5;
 
@@ -753,7 +753,7 @@ export const BUILDINGS: BuildingDef[] = [
     maxLevel: 10,
     upgradeCost: (l) => Math.round(40 * Math.pow(1.7, l)),
     jobs: slotsEveryOtherLevel,
-    incomePerWorker: (l) => 6 * Math.pow(1.15, l - 1),
+    incomePerWorker: (l) => 6 * Math.pow(1.3, l - 1),
   },
   {
     id: 'filletHouse',
@@ -933,7 +933,7 @@ BUILDINGS.push(
     needsWater: true,
     upgradeCost: (l) => Math.round(250 * Math.pow(1.8, l - 1)),
     jobs: () => 2,
-    incomePerWorker: (l) => 9 * Math.pow(1.15, l - 1),
+    incomePerWorker: (l) => 9 * Math.pow(1.3, l - 1),
   },
   {
     id: 'seafoodRestaurant',
@@ -952,7 +952,7 @@ BUILDINGS.push(
     needsWater: true,
     upgradeCost: (l) => Math.round(25_000 * Math.pow(2, l - 1)),
     jobs: () => 4,
-    incomePerWorker: (l) => 20 * Math.pow(1.15, l - 1),
+    incomePerWorker: (l) => 25 * Math.pow(1.3, l - 1),
     moodPerWorker: { amount: () => 2, radius: 4 },
   },
   service({
@@ -1355,8 +1355,10 @@ export const WAGES = {
 // ---------------------------------------------------------------- Festivals
 
 export const FESTIVAL = {
-  /** A festival costs this many minutes of town income (before wages)… */
+  /** A festival costs this many minutes of income, town (before wages) plus recent fish sales… */
   costMinutes: 10,
+  /** …where fish sales count as their average over this many minutes. */
+  fishingWindowMinutes: 30,
   /** …but never less than this. */
   minCost: 150,
   /** Minutes a festival lasts, by Town Square level. */
@@ -1591,14 +1593,16 @@ export const TOWN_LEVELS: TownLevel[] = [
   { cost: 0, residents: 0 },
   { cost: 300, residents: 2 },
   { cost: 1_500, residents: 6 },
-  { cost: 6_000, residents: 12, fish: { fish: 'salmon', amount: 10 } },
-  { cost: 20_000, residents: 24, fish: { fish: 'tuna', amount: 8 } },
-  { cost: 60_000, residents: 40, fish: { fish: 'angler', amount: 5 } },
+  { cost: 4_000, residents: 12, fish: { fish: 'salmon', amount: 10 } },
+  { cost: 10_000, residents: 20, fish: { fish: 'tuna', amount: 8 } },
+  // From here the town's passive income (overnight) is meant to carry progress: each level costs
+  // about a day of town income, and lots of fishing is the slower alternative.
+  { cost: 350_000, residents: 40, fish: { fish: 'angler', amount: 5 } },
   // Late game: each level needs fish from a boat area.
-  { cost: 150_000, residents: 50, fish: { fish: 'swordfish', amount: 8 } },
-  { cost: 400_000, residents: 60, fish: { fish: 'grouper', amount: 6 } },
-  { cost: 1_000_000, residents: 70, fish: { fish: 'giantSquid', amount: 4 } },
-  { cost: 2_500_000, residents: 80, fish: { fish: 'wolffish', amount: 3 } },
+  { cost: 1_100_000, residents: 50, fish: { fish: 'swordfish', amount: 8 } },
+  { cost: 2_700_000, residents: 60, fish: { fish: 'grouper', amount: 6 } },
+  { cost: 5_500_000, residents: 70, fish: { fish: 'giantSquid', amount: 4 } },
+  { cost: 9_000_000, residents: 80, fish: { fish: 'wolffish', amount: 3 } },
 ];
 export const MAX_TOWN_LEVEL = TOWN_LEVELS.length - 1;
 

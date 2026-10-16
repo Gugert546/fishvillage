@@ -32,6 +32,47 @@ import { fishName, hasFish, payUpgradeFish, upgradeNeed } from './crates';
 import { needsStarterResidents, save, state, type PlacedBuilding } from './state';
 import { canAfford, freeMode, spend } from './dev';
 
+// ------------------------------------------------------------------ Names
+
+/** First words for building names: each building of a kind gets one no other of that kind has. */
+const NAME_WORDS = [
+  'Harbour', 'Gull', 'Pine', 'Anchor', 'Driftwood', 'Lantern', 'Kelp', 'Saltwind', 'Birch', 'Tide',
+  'Copper', 'Mossy', 'North', 'Rope', 'Fjord', 'Puffin', 'Heather', 'Stone', 'Willow', 'Cliff',
+  'Seal', 'Juniper', 'Ember', 'Rowan', 'Otter', 'Beacon', 'Amber', 'Ferry', 'Mill', 'Oak',
+  'Fern', 'Crow', 'Gable', 'Lark', 'Hill', 'Brook', 'Cove', 'Bay', 'Shell', 'Reed',
+  'Linden', 'Spruce', 'Thistle', 'Heron', 'Rose', 'Bell', 'Quay', 'Sunny', 'Misty', 'Windy',
+];
+
+/** Homes and workplaces you can have several of get names of their own. */
+export const isNamedKind = (def: BuildingDef): boolean => def.maxCount > 1 && (def.category === 'housing' || def.category === 'work');
+
+/** A name for a new building of this kind that no other one in town has, e.g. "Gull Fish Stand". */
+export function newBuildingName(def: BuildingDef): string | undefined {
+  if (!isNamedKind(def)) return undefined;
+  const taken = new Set(state.buildings.filter((b) => b.type === def.id).map((b) => b.name));
+  const free = NAME_WORDS.map((w) => `${w} ${def.name}`).filter((n) => !taken.has(n));
+  if (free.length > 0) return free[Math.floor(Math.random() * free.length)];
+  for (let n = 2; ; n++) if (!taken.has(`${def.name} #${n}`)) return `${def.name} #${n}`;
+}
+
+/** What to call a building: its own name, or its kind for one-of-a-kind buildings and decorations. */
+export function buildingName(b: PlacedBuilding): string {
+  return b.name ?? BUILDING_BY_ID[b.type].name;
+}
+
+/** Names buildings from saves made before buildings had names. */
+export function nameBuildings(): void {
+  let named = false;
+  for (const b of state.buildings) {
+    if (b.name) continue;
+    const name = newBuildingName(BUILDING_BY_ID[b.type]);
+    if (!name) continue;
+    b.name = name;
+    named = true;
+  }
+  if (named) save();
+}
+
 export function townRows(): number {
   return Math.min(MAX_ROWS, START_ROWS + state.expansions * ROWS_PER_EXPANSION);
 }
@@ -109,7 +150,7 @@ export function placeBuilding(def: BuildingDef, col: number, row: number): Place
     return undefined;
   }
   spend(cost);
-  const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost };
+  const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost, name: newBuildingName(def) };
   state.buildings.push(building);
   if (def.landmark && !state.landmarks.includes(def.id)) state.landmarks.push(def.id);
   assignJobs();
@@ -245,7 +286,7 @@ export function grantStarterResidents(): void {
   while (needed > 0) {
     const spot = findFreeSpot(cottage);
     if (!spot) break;
-    const home: PlacedBuilding = { id: state.nextBuildingId++, type: 'cottage', ...spot, level: 1, spent: 0 };
+    const home: PlacedBuilding = { id: state.nextBuildingId++, type: 'cottage', ...spot, level: 1, spent: 0, name: newBuildingName(cottage) };
     state.buildings.push(home);
     needed -= housingOf(home);
   }
