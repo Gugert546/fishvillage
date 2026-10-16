@@ -224,7 +224,7 @@ art. In dev the page reloads by itself when a file is added.
 
 **Phase 6 — Deeper fishing** ✅ (tune from playtests)
 - **Legendary fights**: touching a legendary on the way up starts a fight. The hook stops and the fish thrashes side to side; keep the hook on it (within ~38 px) to fill the green reel bar (5 s). Off the fish, the red tension bar rises; full tension (~2 s) snaps the line and the legendary escapes for the rest of the cast.
-- **Treasure & junk**: a chest on the sea floor (35% per cast, reachable only at full line length): coins (60 × town level × area number, ±30%), sometimes 3 of your best bait or a charm. A bottle near the surface (20%): its note puts an area's legendary in the water on your next cast there. Boots and cans: $1 and a smile. Items take hook space and open on the catch screen.
+- **Treasure & junk**: a chest on the sea floor (35% per cast, reachable only at full line length): coins (60 × town level × area number, ±30%), sometimes 3 of your best bait or a charm. A bottle near the surface (20%): its note puts an area's legendary in the water on your next cast there. Junk (8 kinds: boots, cans, bottles, teapots, pocket watches, vases, lanterns, compasses, same amount as before): $1 scrap, or appraised at the Antique Shop. Items take hook space and open on the catch screen.
 - **Rods** (Tackle Shop → Rods, switch on the dock): Harpoon (Lv 3, $3k: a Fire button on the way down spears the first fish below, once a cast, without ending the descent), Magnet Rod (Lv 4, $12k: twice the treasure, pulls it toward the hook), Wide Net (Lv 5, $30k: 60% wider catch on the way up).
 - **Combos**: the same species again and again pays 25% of its price per step (×2 = +25%, ×3 = +50%…), paid on the catch screen.
 
@@ -232,6 +232,12 @@ art. In dev the page reloads by itself when a file is added.
 - **Tourists**: the Ferry Terminal (Lv 4, waterside, 2–4 jobs, a ferry moored beside it) brings 6/9/12 tourists when fully staffed, times the town's **appeal** (×1 at 50% happiness, 0–2 from happiness, +0.15 per landmark, +0.05 per trophy, +0.15 with an Aquarium, ×2 during a festival; capped at ×3). Each spends $1 + $0.5 × town level per minute; it's steady income, so it counts while you're away. Visitors in bright shirts and sun hats walk from the terminal to shops, landmarks and the square and back.
 - **Resident requests** (Lv 2, up to 2 open, a new one every ~4 min): a decoration within 3 tiles of their home, a road by the door, or a job at a certain building. A "!" bubble shows over their home; the Quests board has a Requests tab. They complete by themselves: $40 × town level and +4 happiness for that resident for good (up to +12). Requests can be dismissed.
 - **Market streets**: an earning shop next to a road gets +5% for every other road-side earning shop within 3 tiles (up to +25%), shown as "street" in its panel.
+
+**Antique Shop** ✅ (town Lv 4, 2×2, 1 appraiser; tune from playtests)
+- Each piece of junk gets a condition when caught, hidden until appraised: worthless 80% ("Rusty can", $1 scrap), fair 14% ("Empty bottle"), good 5.5% ("Unopened bottle", "Unused shoe"), rare 0.5% ("Gold pocket watch", "Vintage wine"…).
+- Fair/good/rare pay 10 / 60 / 1,500 × town level × the kind's worth (0.6–1.5), +25% per shop level and per fishing area beyond the Harbor. At Lv 4 a rare watch is about $9k, a good bottle $240.
+- Finds wait at the shop (up to 40, more go for scrap). Its panel has **Appraise**, which values everything, best first, and pays for the lot. Without the shop (or with it full) junk is $1 scrap as before; the catch screen hints at the shop from Lv 4.
+- Later: a shelf for your best finds, more junk kinds per area.
 
 **Phase 8 — Beautiful towns (decoration rework)** ✅ (tune from playtests)
 - Problem: 100% happiness is too easy. Base 40 + road 10 + job 10 already gives 60, and decorations stack with no limit, so a few cheap flower beds next to every house max it out. Placement barely matters beyond being in range.
@@ -328,6 +334,7 @@ art. In dev the page reloads by itself when a file is added.
 18. ~~Tourists & Ferry Terminal, resident requests, market streets, sticky jobs (Phase 7)~~
 19. ~~Decoration rework: falloff, variety, diminishing returns, nuisances, arrangements, Town Planner's Book (Phase 8)~~
 20. ~~Rebalance for daily play (passive income from level 5), building names, residents sorting, needed fish in Barrels~~
+21. ~~Antique Shop and more junk kinds~~
 
 ## Dev tips
 

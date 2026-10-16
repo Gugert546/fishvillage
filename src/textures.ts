@@ -125,6 +125,30 @@ function makeItemTextures(scene: Phaser.Scene): void {
   draw('item-tinCan', ITEMS.tinCan.width, ITEMS.tinCan.height, (a) => {
     a.r(1, 0, 4, 7, PAL.mist).hl(1, 0, 4, PAL.white).r(1, 2, 4, 3, PAL.rust).d(2, 3, PAL.copper);
   });
+  draw('item-glassBottle', ITEMS.glassBottle.width, ITEMS.glassBottle.height, (a) => {
+    // Brown glass, so it isn't mistaken for a message in a bottle.
+    a.r(1, 0, 2, 2, PAL.clay).r(0, 2, 4, 7, PAL.brown).vl(0, 3, 5, PAL.clay).r(1, 5, 2, 2, PAL.sand);
+  });
+  draw('item-teapot', ITEMS.teapot.width, ITEMS.teapot.height, (a) => {
+    a.d(4, 0, PAL.mist).hl(3, 1, 3, PAL.white).r(2, 2, 5, 4, PAL.cloud).hl(2, 6, 5, PAL.mist);
+    a.d(7, 3, PAL.cloud).d(8, 2, PAL.cloud).vl(0, 3, 2, PAL.mist).d(1, 2, PAL.mist).d(1, 5, PAL.mist).d(4, 4, PAL.sky);
+  });
+  draw('item-pocketWatch', ITEMS.pocketWatch.width, ITEMS.pocketWatch.height, (a) => {
+    a.d(3, 0, PAL.amber).r(1, 1, 4, 1, PAL.amber).r(0, 2, 6, 4, PAL.amber).hl(1, 6, 4, PAL.orange);
+    a.r(1, 2, 4, 4, PAL.sand).d(2, 3, PAL.ink).d(3, 4, PAL.ink);
+  });
+  draw('item-vase', ITEMS.vase.width, ITEMS.vase.height, (a) => {
+    a.hl(1, 0, 4, PAL.tan).r(2, 1, 2, 1, PAL.clay).r(1, 2, 4, 5, PAL.clay).r(0, 3, 6, 3, PAL.clay);
+    a.hl(0, 4, 6, PAL.amber).r(2, 7, 2, 2, PAL.brown);
+  });
+  draw('item-lantern', ITEMS.lantern.width, ITEMS.lantern.height, (a) => {
+    a.hl(2, 0, 2, PAL.steel).r(1, 1, 4, 1, PAL.slate).r(1, 2, 4, 5, PAL.amber).r(2, 3, 2, 3, PAL.yellow);
+    a.vl(1, 2, 5, PAL.slate).vl(4, 2, 5, PAL.slate).r(0, 7, 6, 2, PAL.slate);
+  });
+  draw('item-compass', ITEMS.compass.width, ITEMS.compass.height, (a) => {
+    a.r(1, 0, 5, 7, PAL.brown).r(0, 1, 7, 5, PAL.brown).r(1, 1, 5, 5, PAL.sand);
+    a.vl(3, 1, 2, PAL.red).vl(3, 4, 2, PAL.steel).d(3, 3, PAL.ink);
+  });
   draw('harpoon', 6, 22, (a) => {
     a.vl(1, 3, 8, PAL.cloud).d(1, 10, PAL.mist);
     a.d(1, 0, PAL.white).r(0, 1, 3, 2, PAL.white);

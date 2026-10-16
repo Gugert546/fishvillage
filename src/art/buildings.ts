@@ -149,6 +149,20 @@ const ART: Partial<Record<BuildingId, (a: Art, W: number, H: number, v: number) 
     a.footing(2, 28, 28, 2);
   },
 
+  antiqueShop(a) {
+    a.shadow(2, 29, 28);
+    a.roof(1, 1, 30, 7, ROOF.brown, 2);
+    a.wall(3, 8, 26, 20, WALL.clay);
+    a.sign(5, 9, 22, 5, PAL.bark, PAL.amber);
+    // A little teapot on the sign
+    a.r(14, 10, 5, 3, PAL.amber).d(13, 11, PAL.amber).d(19, 10, PAL.amber).d(16, 9, PAL.amber);
+    a.win(5, 16, 10, 9);
+    // Curios in the window: a vase, a clock and a bottle
+    a.r(7, 20, 2, 4, PAL.salmon).r(10, 21, 3, 3, PAL.amber).d(11, 22, PAL.ink).r(13, 19, 1, 5, PAL.green);
+    a.door(19, 17, 7, 11, PAL.forest);
+    a.footing(2, 28, 28, 2);
+  },
+
   tackleShop(a) {
     a.shadow(3, 61, 60);
     a.chimney(50, 2, 8);

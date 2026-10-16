@@ -1,6 +1,7 @@
 // What you fish up besides fish: treasure chests, messages in bottles and the odd old boot.
 
-import { AREAS, BAITS, FISH, TREASURE, type AreaDef, type CharmId, type ItemId } from './config';
+import { AREAS, BAITS, FISH, ITEMS, TREASURE, type AreaDef, type CharmId, type ItemId, type JunkId } from './config';
+import { pickUpJunk } from './antiques';
 import { save, state } from './state';
 import { baitUnlocked, ownsArea, townLevel } from './town';
 
@@ -15,9 +16,8 @@ export interface ItemReward {
 export function openItem(item: ItemId, area: AreaDef): ItemReward {
   if (item === 'chest') return openChest(area);
   if (item === 'bottle') return readBottle();
-  const coins = 1;
-  state.coins += coins;
-  return { item, text: item === 'boot' ? 'An old boot. Someone lost a shoe!' : 'A rusty can. Recycled for $1', coins };
+  if (ITEMS[item].junk) return { item, ...pickUpJunk(item as JunkId, area.id) };
+  return { item, text: ITEMS[item].name, coins: 0 };
 }
 
 function openChest(area: AreaDef): ItemReward {

@@ -29,9 +29,11 @@ import {
   MAX_TOWN_LEVEL,
   TOWN_LEVELS,
   ARRANGEMENT_BY_ID,
+  JUNK,
   type BuildingDef,
 } from '../config';
 import { discoverArrangements, findArrangements, type Arrangement } from '../arrangements';
+import { appraiseAll, hasAppraiser } from '../antiques';
 import { takeArrivals, tickEconomy } from '../economy';
 import {
   averageHappiness,
@@ -1832,6 +1834,43 @@ export class TownScene extends Phaser.Scene {
     this.panelFor = undefined;
   }
 
+  /** The appraiser looks at every find, best first, and pays for the lot. */
+  private openAppraisal(shop: PlacedBuilding): void {
+    this.closeModal();
+    const results = appraiseAll(shop);
+    const total = results.reduce((sum, r) => sum + r.coins, 0);
+    // Worth-something finds get a row each; the scrap is summed up in one line.
+    const worth = results.filter((r) => r.find.tier !== 'worthless');
+    const scrap = results.length - worth.length;
+    const rowH = 40;
+    const shown = worth.slice(0, Math.max(1, Math.floor((GAME_HEIGHT - 400) / rowH)));
+    const m = (this.modal = new Modal(this, 230 + (shown.length + (scrap > 0 ? 1 : 0)) * rowH));
+    const rare = worth.some((r) => r.find.tier === 'rare');
+    m.text(GAME_WIDTH / 2, m.top + 32, rare ? 'What a find!' : 'Appraisal', 26).setColor(rare ? COLORS.gold : '#ffffff');
+    m.text(GAME_WIDTH / 2, m.top + 64, `${results.length} piece${results.length === 1 ? '' : 's'} looked at`, 14).setAlpha(0.75);
+    const tierColor = { worthless: '#8b9bb4', fair: '#ffffff', good: '#8ee88e', rare: COLORS.gold };
+    let y = m.top + 104;
+    for (const r of shown) {
+      m.add(this.add.image(54, y, `item-${r.find.kind}`).setScale(1.5));
+      m.text(84, y - 8, r.name, 16, 0).setColor(tierColor[r.find.tier]);
+      m.text(84, y + 10, r.find.tier, 12, 0).setAlpha(0.6);
+      m.text(GAME_WIDTH - 44, y, `$${formatCoins(r.coins)}`, 16, 1).setColor(tierColor[r.find.tier]);
+      y += rowH;
+    }
+    if (worth.length > shown.length) {
+      m.text(GAME_WIDTH / 2, y - 14, `+${worth.length - shown.length} more`, 12).setAlpha(0.6);
+    }
+    if (scrap > 0) {
+      m.text(84, y, `${scrap} worthless piece${scrap === 1 ? '' : 's'} for scrap`, 14, 0).setAlpha(0.7);
+      m.text(GAME_WIDTH - 44, y, `$${formatCoins(scrap * JUNK.scrap)}`, 14, 1).setAlpha(0.7);
+      y += rowH;
+    }
+    m.text(GAME_WIDTH / 2, y + 10, `Total +$${formatCoins(total)}`, 20).setColor(COLORS.gold);
+    if (rare) sfx.fanfare();
+    else sfx.coins();
+    m.add(makeButton(this, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Back', () => this.openBuildingPanel(shop), COLORS.neutral));
+  }
+
   private openBuildMenu(tab = this.buildTab, page = 0): void {
     this.closeModal();
     this.buildTab = tab;
@@ -1964,7 +2003,7 @@ export class TownScene extends Phaser.Scene {
       (isDecor ? 70 : 0) +
       (upgradable ? 70 : 0) +
       sells.length * 66 +
-      (def.id === 'baitShop' || def.id === 'tackleShop' || def.id === 'boatyard' || def.id === 'aquarium' || def.id === 'icehouse' || def.dockPricePerWorker ? 66 : 0) +
+      (def.id === 'baitShop' || def.id === 'antiqueShop' || def.id === 'tackleShop' || def.id === 'boatyard' || def.id === 'aquarium' || def.id === 'icehouse' || def.dockPricePerWorker ? 66 : 0) +
       (def.festivals ? 132 : 0) +
       (upgradeNeed(b) ? 22 : 0) +
       130;
@@ -2154,6 +2193,20 @@ export class TownScene extends Phaser.Scene {
       m.text(40, y - 12, 'Bait', 18, 0);
       m.text(40, y + 14, owned > 0 ? `You have ${owned} bait` : 'Lures better fish', 14, 0).setAlpha(0.75);
       m.add(makeButton(this, right, y, 110, 46, 'Shop ›', () => this.openBaitStore(b), COLORS.primary, 18));
+      y += 66;
+    }
+
+    if (def.id === 'antiqueShop') {
+      const n = state.finds.length;
+      const open = hasAppraiser(b);
+      m.text(40, y - 12, `Finds ${n}/${JUNK.maxFinds}`, 18, 0);
+      const note = !open ? 'Needs an appraiser to look at them' : n > 0 ? 'Junk from your casts, waiting' : 'Fish up junk and it comes here';
+      m.text(40, y + 14, note, 13, 0).setAlpha(0.75).setColor(open ? '#ffffff' : '#ff8a8a');
+      const appraise = makeButton(this, right, y, 110, 46, 'Appraise', () => {
+        if (open && state.finds.length > 0) this.openAppraisal(b);
+      }, COLORS.buy, 18);
+      appraise.setEnabledLook(open && n > 0, COLORS.buy);
+      m.add(appraise);
       y += 66;
     }
 

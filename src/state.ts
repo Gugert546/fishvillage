@@ -3,6 +3,8 @@ import {
   DECOR_FREE_REFUND_MS,
   UPGRADES,
   type AreaId,
+  type JunkId,
+  type JunkTier,
   type ArrangementId,
   type BaitId,
   type BuildingId,
@@ -176,6 +178,8 @@ export interface GameState {
   arrangementsFound: ArrangementId[];
   /** Recent fish sales as [time, coins], for pricing festivals by what you earn. */
   fishSales: [number, number][];
+  /** Junk waiting at the Antique Shop: its condition is set when caught, revealed when appraised. */
+  finds: { kind: JunkId; tier: JunkTier; area: AreaId }[];
 }
 
 function freshState(): GameState {
@@ -228,6 +232,7 @@ function freshState(): GameState {
     decorNotice: false,
     arrangementsFound: [],
     fishSales: [],
+    finds: [],
   };
 }
 

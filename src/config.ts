@@ -113,7 +113,8 @@ export const COMBO_BONUS = 0.25;
 
 // ---------------------------------------------------------------- Treasure & junk
 
-export type ItemId = 'chest' | 'bottle' | 'boot' | 'tinCan';
+export type JunkId = 'boot' | 'tinCan' | 'glassBottle' | 'teapot' | 'pocketWatch' | 'vase' | 'lantern' | 'compass';
+export type ItemId = 'chest' | 'bottle' | JunkId;
 
 export interface ItemDef {
   id: ItemId;
@@ -122,13 +123,56 @@ export interface ItemDef {
   height: number;
   /** Chests lie on the sea floor, bottles bob near the surface, junk drifts anywhere. */
   where: 'floor' | 'surface' | 'anywhere';
+  /** Junk: worth $1 as scrap, or whatever its condition fetches at the Antique Shop. */
+  junk?: boolean;
 }
 
 export const ITEMS: Record<ItemId, ItemDef> = {
   chest: { id: 'chest', name: 'Treasure chest', width: 24, height: 18, where: 'floor' },
   bottle: { id: 'bottle', name: 'Message in a bottle', width: 10, height: 18, where: 'surface' },
-  boot: { id: 'boot', name: 'Old boot', width: 18, height: 16, where: 'anywhere' },
-  tinCan: { id: 'tinCan', name: 'Rusty can', width: 12, height: 14, where: 'anywhere' },
+  boot: { id: 'boot', name: 'Old boot', width: 18, height: 16, where: 'anywhere', junk: true },
+  tinCan: { id: 'tinCan', name: 'Old can', width: 12, height: 14, where: 'anywhere', junk: true },
+  glassBottle: { id: 'glassBottle', name: 'Old bottle', width: 8, height: 18, where: 'anywhere', junk: true },
+  teapot: { id: 'teapot', name: 'Old teapot', width: 18, height: 14, where: 'anywhere', junk: true },
+  pocketWatch: { id: 'pocketWatch', name: 'Pocket watch', width: 12, height: 14, where: 'anywhere', junk: true },
+  vase: { id: 'vase', name: 'Old vase', width: 12, height: 18, where: 'anywhere', junk: true },
+  lantern: { id: 'lantern', name: 'Old lantern', width: 12, height: 18, where: 'anywhere', junk: true },
+  compass: { id: 'compass', name: 'Old compass', width: 14, height: 14, where: 'anywhere', junk: true },
+};
+
+export const JUNK_IDS = (Object.keys(ITEMS) as ItemId[]).filter((id): id is JunkId => !!ITEMS[id].junk);
+
+// Antique Shop: junk gets a condition when caught, and the shop's appraiser pays by it.
+export type JunkTier = 'worthless' | 'fair' | 'good' | 'rare';
+
+export const JUNK = {
+  /** Chance of each condition (adds up to 1), and what it pays: this × town level × the kind's worth. */
+  tiers: [
+    { id: 'worthless', chance: 0.8, value: 0 },
+    { id: 'fair', chance: 0.14, value: 10 },
+    { id: 'good', chance: 0.055, value: 60 },
+    { id: 'rare', chance: 0.005, value: 1500 },
+  ] as { id: JunkTier; chance: number; value: number }[],
+  /** Worthless finds, and all junk without an Antique Shop, go for scrap. */
+  scrap: 1,
+  /** Each Antique Shop level above 1 pays this much more. */
+  perShopLevel: 0.25,
+  /** Each fishing area beyond the Harbor pays this much more (deeper, older wrecks). */
+  perArea: 0.25,
+  /** Finds waiting at the shop; more than this go for scrap on the spot. */
+  maxFinds: 40,
+};
+
+/** What each condition of a junk kind is called, from worthless to rare, and what it's worth. */
+export const JUNK_KINDS: Record<JunkId, { worth: number; names: Record<JunkTier, string> }> = {
+  boot: { worth: 1, names: { worthless: 'Soggy boot', fair: 'Worn boot', good: 'Unused shoe', rare: 'Golden slipper' } },
+  tinCan: { worth: 0.6, names: { worthless: 'Rusty can', fair: 'Dented tin', good: 'Sealed tin', rare: 'Antique tea caddy' } },
+  glassBottle: { worth: 1, names: { worthless: 'Broken bottle', fair: 'Empty bottle', good: 'Unopened bottle', rare: 'Vintage wine' } },
+  teapot: { worth: 1.2, names: { worthless: 'Cracked teapot', fair: 'Chipped teapot', good: 'Fine teapot', rare: 'Porcelain heirloom' } },
+  pocketWatch: { worth: 1.5, names: { worthless: 'Smashed watch', fair: 'Stopped watch', good: 'Ticking watch', rare: 'Gold pocket watch' } },
+  vase: { worth: 1.3, names: { worthless: 'Shattered vase', fair: 'Chipped vase', good: 'Painted vase', rare: 'Ancient amphora' } },
+  lantern: { worth: 0.9, names: { worthless: 'Rusted lantern', fair: 'Bent lantern', good: 'Brass lantern', rare: "Ship's lantern" } },
+  compass: { worth: 1.1, names: { worthless: 'Broken compass', fair: 'Foggy compass', good: 'Working compass', rare: "Admiral's compass" } },
 };
 
 export const TREASURE = {
@@ -577,6 +621,7 @@ export type BuildingId =
   | 'lighthouse'
   | 'tackleShop'
   | 'baitShop'
+  | 'antiqueShop'
   | 'cottage'
   | 'apartment'
   | 'road'
@@ -808,6 +853,24 @@ export const BUILDINGS: BuildingDef[] = [
     upgradeCost: (l) => Math.round(400 * Math.pow(3, l - 1)),
     jobs: slotsEveryOtherLevel,
     incomePerWorker: (l) => 2.5 * l,
+  },
+  {
+    id: 'antiqueShop',
+    name: 'Antique Shop',
+    description: 'Buys the junk you fish up, by its condition. Needs an appraiser.',
+    category: 'work',
+    w: 2,
+    h: 2,
+    wall: 0xb08968,
+    roof: 0x5c3d2e,
+    baseCost: 2_500,
+    costGrowth: 1,
+    maxCount: 1,
+    maxLevel: 3,
+    unlockLevel: 4,
+    upgradeCost: (l) => Math.round(8_000 * Math.pow(3, l - 1)),
+    jobs: () => 1,
+    incomePerWorker: (l) => 3 * l,
   },
 ];
 

@@ -13,6 +13,7 @@ import {
   HARPOON,
   HAZARD_INFO,
   ITEMS,
+  JUNK_IDS,
   MAGNET,
   ROD_BY_ID,
   TREASURE,
@@ -887,7 +888,8 @@ export class FishingScene extends Phaser.Scene {
     if (Math.random() < Math.min(0.9, TREASURE.bottleChance * more)) add(ITEMS.bottle, Phaser.Math.Between(3, 25), Phaser.Math.Between(-12, 12));
     const junk = Math.floor((this.area.depth / 100) * TREASURE.junkPer100m + Math.random());
     for (let i = 0; i < junk; i++) {
-      add(Math.random() < 0.5 ? ITEMS.boot : ITEMS.tinCan, Phaser.Math.Between(10, this.area.depth - 10), Phaser.Math.Between(-15, 15));
+      const kind = JUNK_IDS[Math.floor(Math.random() * JUNK_IDS.length)];
+      add(ITEMS[kind], Phaser.Math.Between(10, this.area.depth - 10), Phaser.Math.Between(-15, 15));
     }
   }
 
