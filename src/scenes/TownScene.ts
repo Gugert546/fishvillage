@@ -130,7 +130,9 @@ import {
   countOwned,
   expand,
   findFreeSpot,
+  lampEdge,
   moveBuilding,
+  type Edge,
   nextExpansionCost,
   placeBuilding,
   placementProblem,
@@ -189,6 +191,15 @@ type BuildTab = 'homes' | 'shops' | 'services' | 'decor' | 'special';
 /** Workplaces that earn coins themselves (what the Water Mill boosts). */
 const earns = (def: BuildingDef) => !!(def.incomePerWorker || def.speciesIncomePerWorker);
 
+/** Lamp posts on a road stand at one edge of the tile: how far to shift their picture. */
+function edgeOffset(edge?: PlacedBuilding['edge']): { dx: number; dy: number } {
+  if (edge === 'up') return { dx: 0, dy: -18 };
+  if (edge === 'down') return { dx: 0, dy: 4 };
+  if (edge === 'left') return { dx: -12, dy: 0 };
+  if (edge === 'right') return { dx: 12, dy: 0 };
+  return { dx: 0, dy: 0 };
+}
+
 /** A happiness change for labels: "+3", "+0.5", "−7". */
 function moodDelta(v: number): string {
   const abs = Math.abs(v);
@@ -233,6 +244,8 @@ interface Ghost {
   outline: Phaser.GameObjects.Rectangle;
   /** Set when relocating an existing building instead of buying a new one. */
   moving?: PlacedBuilding;
+  /** Lamp posts: the edge of the road tile they'd stand at. */
+  edge?: Edge;
 }
 
 /** What a building's view currently shows; redrawn when this changes. */
@@ -375,8 +388,9 @@ export class TownScene extends Phaser.Scene {
       if (def.category === 'tile') continue;
       const pos = tileToWorld(b.col, b.row, def.h);
       if (def.id === 'lampPost') {
-        g.fillStyle(0xffd166, 0.1 * night).fillCircle(pos.x + TILE / 2, pos.y + 8, 30);
-        g.fillStyle(0xffe8a3, 0.3 * night).fillCircle(pos.x + TILE / 2, pos.y + 8, 12);
+        const off = edgeOffset(b.edge);
+        g.fillStyle(0xffd166, 0.1 * night).fillCircle(pos.x + off.dx + TILE / 2, pos.y + off.dy + 8, 30);
+        g.fillStyle(0xffe8a3, 0.3 * night).fillCircle(pos.x + off.dx + TILE / 2, pos.y + off.dy + 8, 12);
       } else if (def.housing || def.jobs || def.category === 'player') {
         g.fillStyle(0xffc46b, 0.22 * night).fillEllipse(pos.x + (def.w * TILE) / 2, pos.y + def.h * TILE * 0.68, def.w * TILE * 0.7, def.h * TILE * 0.35);
       }
@@ -796,8 +810,9 @@ export class TownScene extends Phaser.Scene {
     this.buildingViews.get(b.id)?.destroy();
     const view = this.drawBuilding(def, status, b);
     const pos = tileToWorld(b.col, b.row, def.h);
+    const off = edgeOffset(b.edge);
     // Lower rows draw in front so tall roofs overlap neatly.
-    view.setPosition(pos.x, pos.y).setDepth(10 + (1000 - b.row) * 0.001);
+    view.setPosition(pos.x + off.dx, pos.y + off.dy).setDepth(10 + (1000 - b.row) * 0.001);
     if (this.ghost?.moving === b) view.setAlpha(0.3);
     this.buildingViews.set(b.id, view);
     this.viewStatus.set(b.id, status);
@@ -830,7 +845,8 @@ export class TownScene extends Phaser.Scene {
       } else {
         // Keep the position current (cheap, and covers moves).
         const pos = tileToWorld(b.col, b.row, defOf(b).h);
-        view.setPosition(pos.x, pos.y);
+        const off = edgeOffset(b.edge);
+        view.setPosition(pos.x + off.dx, pos.y + off.dy);
       }
     }
     for (const [id, view] of this.buildingViews) {
@@ -923,10 +939,12 @@ export class TownScene extends Phaser.Scene {
   }
 
   private buildingAt(col: number, row: number): PlacedBuilding | undefined {
-    return state.buildings.find((b) => {
+    const here = state.buildings.filter((b) => {
       const def = defOf(b);
       return col >= b.col && col < b.col + def.w && row >= b.row && row < b.row + def.h;
     });
+    // A lamp post on a road (or a bridge on a canal) is the one you mean, not the tile under it.
+    return here.find((b) => defOf(b).category !== 'tile') ?? here[0];
   }
 
   private isOnScreen(b: PlacedBuilding): boolean {
@@ -1065,7 +1083,7 @@ export class TownScene extends Phaser.Scene {
       if (gs.onGhost && this.ghost) {
         const w = this.cameras.main.getWorldPoint(p.x, p.y);
         const tile = worldToTile(w.x, w.y);
-        this.moveGhost(tile.col - gs.grabCol, tile.row - gs.grabRow);
+        this.moveGhost(tile.col - gs.grabCol, tile.row - gs.grabRow, w);
         return;
       }
       this.scrollTo(gs.startScroll - (p.y - gs.startY));
@@ -1099,7 +1117,7 @@ export class TownScene extends Phaser.Scene {
     if (this.ghost) {
       // Center the footprint on the finger.
       const { def } = this.ghost;
-      this.moveGhost(Math.round((x - GRID_X) / TILE - def.w / 2), Math.round(-y / TILE - def.h / 2));
+      this.moveGhost(Math.round((x - GRID_X) / TILE - def.w / 2), Math.round(-y / TILE - def.h / 2), { x, y });
       return;
     }
     const tile = worldToTile(x, y);
@@ -1192,13 +1210,23 @@ export class TownScene extends Phaser.Scene {
     this.drawGridLines();
   }
 
-  private moveGhost(col: number, row: number): void {
+  /** `at` is the finger's world position, which picks a lamp post's edge of the road. */
+  private moveGhost(col: number, row: number, at?: { x: number; y: number }): void {
     const g = this.ghost;
     if (!g) return;
     g.col = Phaser.Math.Clamp(col, 0, TOWN_COLS - g.def.w);
     g.row = Phaser.Math.Clamp(row, 0, townRows() - g.def.h);
     const pos = tileToWorld(g.col, g.row, g.def.h);
-    g.view.setPosition(pos.x, pos.y);
+    let off = { dx: 0, dy: 0 };
+    if (g.def.onRoad) {
+      const fx = at ? Phaser.Math.Clamp((at.x - GRID_X) / TILE - g.col, 0, 1) : 0.5;
+      const fy = at ? Phaser.Math.Clamp(-at.y / TILE - g.row, 0, 1) : 1;
+      g.edge = lampEdge(g.col, g.row, fx, fy);
+      off = edgeOffset(g.edge);
+    }
+    // The picture shifts to its edge; the outline stays on the tile.
+    g.view.setPosition(pos.x + off.dx, pos.y + off.dy);
+    g.outline.setPosition(-off.dx, -off.dy);
     this.updateRangePreview();
   }
 
@@ -1216,7 +1244,7 @@ export class TownScene extends Phaser.Scene {
     this.clearRangePreview();
     const g = this.ghost;
     if (!g) return;
-    const probe: PlacedBuilding = { id: -1, type: g.def.id, col: g.col, row: g.row, level: 1 };
+    const probe: PlacedBuilding = { id: -1, type: g.def.id, col: g.col, row: g.row, level: 1, edge: g.edge };
     const label = (b: PlacedBuilding, text: string, color: string) => {
       const def = defOf(b);
       const pos = tileToWorld(b.col, b.row, def.h);
@@ -1355,7 +1383,9 @@ export class TownScene extends Phaser.Scene {
     if (!def || col < 0 || col >= TOWN_COLS || row < 0 || row >= townRows()) return;
     const existing = this.paintedAt(col, row);
     if (this.paint?.erase) {
-      if (existing) sellBuilding(existing);
+      const lamp = existing && state.buildings.find((b) => defOf(b).onRoad && b.col === col && b.row === row);
+      if (lamp) this.hint.setText('Move the lamp post off this road first');
+      else if (existing) sellBuilding(existing);
     } else if (!existing) {
       const problem = placementProblem(def, col, row);
       if (problem === 'noCanal') this.hint.setText('Bridges go over canals');
@@ -1397,7 +1427,15 @@ export class TownScene extends Phaser.Scene {
     this.placeButton.setLabel(g.moving ? 'Move here' : `Place $${formatCoins(cost)}`);
     const problem = placementProblem(g.def, g.col, g.row, g.moving);
     this.hint.setText(
-      !problem ? 'Tap or drag to choose a spot' : problem === 'water' ? 'Must be next to water (a filled canal)' : 'That spot is taken',
+      !problem
+        ? g.def.onRoad
+          ? 'Tap near the side of the road it should stand on'
+          : 'Tap or drag to choose a spot'
+        : problem === 'water'
+          ? 'Must be next to water (a filled canal)'
+          : problem === 'noRoad'
+            ? 'Lamp posts go on a road'
+            : 'That spot is taken',
     );
   }
 
@@ -1405,12 +1443,12 @@ export class TownScene extends Phaser.Scene {
     const g = this.ghost;
     if (!g) return;
     if (g.moving) {
-      if (!moveBuilding(g.moving, g.col, g.row)) return;
+      if (!moveBuilding(g.moving, g.col, g.row, g.edge)) return;
       this.exitBuildMode();
       this.refreshBuildingViews();
       return;
     }
-    const b = placeBuilding(g.def, g.col, g.row);
+    const b = placeBuilding(g.def, g.col, g.row, g.edge);
     if (!b) return;
     sfx.place();
     // Decorations stay in build mode so you can dot several around town.
@@ -1935,6 +1973,7 @@ export class TownScene extends Phaser.Scene {
       else if (def.maxCount > 1 && def.category !== 'tile' && def.category !== 'decor') {
         note = { text: `Owned ${owned}/${cap}${water}`, color: water ? '#8ecae6' : '#ffffff', alpha: water ? 1 : 0.6 };
       } else if (water) note = { text: 'Needs water (beside a canal)', color: '#8ecae6' };
+      else if (def.onRoad) note = { text: 'Goes on a road', color: '#ffffff', alpha: 0.6 };
       if (note) m.text(110, y + 42, note.text, 12, 0).setColor(note.color).setAlpha(note.alpha ?? 1);
       if (!unlocked) preview.setAlpha(0.35);
       const affordable = canAfford(cost);

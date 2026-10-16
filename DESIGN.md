@@ -128,6 +128,7 @@ Kinds: catch N of a fish · fill the hook in one cast · earn $N from fishing ·
 - **Residents list:** tap the population counter in the top bar. Shows name, job, home and mood, sorted by Name, Job, Mood (unhappiest first) or Home; tap a resident to pick their job (Auto / No job / a workplace). Hand-picked jobs are pinned: auto-assignment works around them and may bump auto workers to make room.
 - **Happiness (0–100%):** per house, averaged over residents. Base 35, road next to home +5, job +10 (−10 without), waterfront +5, town-wide boosts. Plus surroundings (decorations, Taverns, the square…), with distance falloff, less for repeats of a type and diminishing returns. Minus smell and noise from some harbour buildings, softened by trees touching the home (see Phase 8). The placement preview shows what each nearby home really gains or loses.
 - **Roads:** bonus only, never required. Villagers walk along them.
+- **Lamp posts** go on a road tile, standing at the edge nearest where you tap (edges that face more road are skipped, so they line the sides). The road stays a road underneath and villagers walk past. A road tile with a lamp on it can't be erased until the lamp moves. Lamps placed on grass before this keep working where they are.
 - **Canals:** painted like roads ($10/tile, full refund). Water only flows in through canals connected to the shore (bottom row, where they pass under a little bridge in the boardwalk); unconnected stretches stay dry ditches. Homes beside water get +5 happiness. **Bridges** ($25) go over canals so villagers can cross.
 - **Effects:** income multiplier (~×0.75 at 0% → ×1.5 at 100%), move-in speed, perks at high happiness. Low happiness never makes residents leave.
 - **Alive:** villagers walking home ↔ work, chimney smoke, shopkeeper in the door, "Help wanted!" signs.
@@ -272,7 +273,7 @@ art. In dev the page reloads by itself when a file is added.
   | **Garden** | A Cottage with 3+ Flower Beds touching it (Apartment: 4+) | +4, that home only |
   | **Park** | 4+ decorations touching each other in one group, with 2+ Trees, a Bench and a Flower Bed | +6 within 3 |
   | **Plaza** | A Fountain or Koi Pond on a road, with 2+ Benches and 2+ Lamp Posts within 2 tiles | +8 within 4 |
-  | **Avenue** | A straight road of 5+ tiles with Trees or Lamp Posts along both sides (3+ each side) | +5 to homes touching that road |
+  | **Avenue** | A straight road of 5+ tiles with Trees beside it or Lamp Posts at its edges, on both sides (3+ each side) | +5 to homes touching that road |
   | **Promenade** | 4+ road tiles along a watered canal, with a Bench and Moored Boats or a Lamp Post beside them | +5 within 2 |
 
 - **Town Planner's Book** (the Planner button in the Build menu): lists every arrangement. Undiscovered ones show a silhouette and a one-line hint ("Trees, a bench and flowers, all together…"). Discovering one pays a small coin reward ($50–200 × town level) with a sparkle and a toast. While building or painting roads, arrangement names float over the town, and the one the piece being placed belongs to shows in gold.

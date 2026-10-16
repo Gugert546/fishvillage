@@ -60,8 +60,14 @@ export function findArrangements(buildings: readonly PlacedBuilding[] = state.bu
 }
 
 function detect(buildings: readonly PlacedBuilding[], wet: Set<string>): Arrangement[] {
+  // Roads on their own map, so a lamp post standing on one doesn't hide it.
   const at = new Map<string, PlacedBuilding>();
+  const roadMap = new Map<string, PlacedBuilding>();
   for (const b of buildings) {
+    if (isRoad(b)) {
+      roadMap.set(key(b.col, b.row), b);
+      continue;
+    }
     const { w, h } = defOf(b);
     for (let c = b.col; c < b.col + w; c++) for (let r = b.row; r < b.row + h; r++) at.set(key(c, r), b);
   }
@@ -101,7 +107,7 @@ function detect(buildings: readonly PlacedBuilding[], wet: Set<string>): Arrange
   // Plaza: a fountain by a road, gathered around with benches and lamps.
   for (const centre of buildings) {
     if (centre.type !== 'fountain' && centre.type !== 'koiPond') continue;
-    if (!tilesBeside(centre).some((k) => at.has(k) && isRoad(at.get(k)!))) continue;
+    if (!tilesBeside(centre).some((k) => roadMap.has(k))) continue;
     const around = (type: string) => buildings.filter((b) => b.type === type && tileGap(b, centre) <= ARRANGEMENT.plazaGather);
     const benches = around('bench');
     const lamps = around('lampPost');
@@ -111,16 +117,18 @@ function detect(buildings: readonly PlacedBuilding[], wet: Set<string>): Arrange
   }
 
   // Avenue: a straight road lined on both sides with trees or lamps.
-  const roadAt = (c: number, r: number) => {
-    const b = at.get(key(c, r));
-    return b && isRoad(b) ? b : undefined;
-  };
+  const roadAt = (c: number, r: number) => roadMap.get(key(c, r));
   const liner = (c: number, r: number) => {
     const b = at.get(key(c, r));
     return b && (b.type === 'tree' || b.type === 'lampPost') ? b : undefined;
   };
   const rows = Math.max(0, ...buildings.map((b) => b.row + defOf(b).h));
   const cols = Math.max(0, ...buildings.map((b) => b.col + defOf(b).w));
+  // Lamp posts standing on a road tile, by which edge they're at.
+  const lampOn = (c: number, r: number, edge: PlacedBuilding['edge']) => {
+    const b = at.get(key(c, r));
+    return b && defOf(b).onRoad && b.edge === edge ? b : undefined;
+  };
   const runs: { tiles: [number, number][]; across: [number, number] }[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -141,8 +149,10 @@ function detect(buildings: readonly PlacedBuilding[], wet: Set<string>): Arrange
   for (const { tiles, across } of runs) {
     if (tiles.length < ARRANGEMENT.avenueLength) continue;
     const [dc, dr] = across;
-    const sideA = tiles.map(([c, r]) => liner(c - dc, r - dr)).filter((b): b is PlacedBuilding => !!b);
-    const sideB = tiles.map(([c, r]) => liner(c + dc, r + dr)).filter((b): b is PlacedBuilding => !!b);
+    // Each side counts trees or lamps just beside the road, or lamps on the road at that edge.
+    const [edgeA, edgeB] = dr === 1 ? (['down', 'up'] as const) : (['left', 'right'] as const);
+    const sideA = tiles.map(([c, r]) => liner(c - dc, r - dr) ?? lampOn(c, r, edgeA)).filter((b): b is PlacedBuilding => !!b);
+    const sideB = tiles.map(([c, r]) => liner(c + dc, r + dr) ?? lampOn(c, r, edgeB)).filter((b): b is PlacedBuilding => !!b);
     if (sideA.length < ARRANGEMENT.avenuePerSide || sideB.length < ARRANGEMENT.avenuePerSide) continue;
     const roads = tiles.map(([c, r]) => roadAt(c, r)!);
     const beside = new Set(tiles.map(([c, r]) => key(c, r)));

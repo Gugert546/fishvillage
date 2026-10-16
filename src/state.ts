@@ -37,6 +37,8 @@ export interface PlacedBuilding {
   deliveries?: number;
   /** Homes and workplaces you can own several of: a name of its own, e.g. "Gull Fish Stand". */
   name?: string;
+  /** Lamp posts on a road: which edge of the tile they stand at (on screen). */
+  edge?: 'up' | 'down' | 'left' | 'right';
 }
 
 /** A building asking for fish from the Icehouse. */

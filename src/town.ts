@@ -115,7 +115,23 @@ export function buildCost(def: BuildingDef): number {
   return Math.round(def.baseCost * Math.pow(def.costGrowth, countOwned(def.id)));
 }
 
-export type PlacementProblem = 'outside' | 'taken' | 'water' | 'noCanal';
+export type PlacementProblem = 'outside' | 'taken' | 'water' | 'noCanal' | 'noRoad';
+
+export type Edge = NonNullable<PlacedBuilding['edge']>;
+const EDGE_STEP: Record<Edge, [number, number]> = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
+
+const isRoadTile = (b: PlacedBuilding) => b.type === 'road' || b.type === 'bridge';
+
+/**
+ * Which edge of a road tile a lamp post stands at: the one nearest the finger (fx, fy are 0..1
+ * across the tile, fy counting up), skipping edges that face more road so lamps line its sides.
+ */
+export function lampEdge(col: number, row: number, fx = 0.5, fy = 1): Edge {
+  const roads = new Set(state.buildings.filter(isRoadTile).map((b) => `${b.col},${b.row}`));
+  const dist: Record<Edge, number> = { up: 1 - fy, down: fy, left: fx, right: 1 - fx };
+  const edges = (Object.keys(dist) as Edge[]).sort((a, b) => dist[a] - dist[b]);
+  return edges.find((e) => !roads.has(`${col + EDGE_STEP[e][0]},${row + EDGE_STEP[e][1]}`)) ?? edges[0];
+}
 
 /** Why a building can't go here, or undefined if it can. */
 export function placementProblem(
@@ -135,6 +151,11 @@ export function placementProblem(
     if (!overlapping.some((b) => b.type === 'canal')) return 'noCanal';
     return overlapping.every((b) => b.type === 'canal') ? undefined : 'taken';
   }
+  // Lamp posts stand on a road tile, one per tile.
+  if (def.onRoad) {
+    if (!overlapping.some((b) => b.type === 'road')) return overlapping.length > 0 ? 'taken' : 'noRoad';
+    return overlapping.every((b) => b.type === 'road') ? undefined : 'taken';
+  }
   if (overlapping.length > 0) return 'taken';
   if (def.needsWater && !touchesWater({ id: -1, type: def.id, col, row, level: 1 })) return 'water';
   return undefined;
@@ -144,13 +165,14 @@ export function canPlace(def: BuildingDef, col: number, row: number, ignore?: Pl
   return placementProblem(def, col, row, ignore) === undefined;
 }
 
-export function placeBuilding(def: BuildingDef, col: number, row: number): PlacedBuilding | undefined {
+export function placeBuilding(def: BuildingDef, col: number, row: number, edge?: Edge): PlacedBuilding | undefined {
   const cost = buildCost(def);
   if (!isUnlocked(def) || !canAfford(cost) || countOwned(def.id) >= countCap(def) || !canPlace(def, col, row)) {
     return undefined;
   }
   spend(cost);
   const building: PlacedBuilding = { id: state.nextBuildingId++, type: def.id, col, row, level: 1, spent: cost, name: newBuildingName(def) };
+  if (def.onRoad) building.edge = edge ?? lampEdge(col, row);
   state.buildings.push(building);
   if (def.landmark && !state.landmarks.includes(def.id)) state.landmarks.push(def.id);
   assignJobs();
@@ -215,10 +237,12 @@ export function sellBuilding(b: PlacedBuilding): number {
   return value;
 }
 
-export function moveBuilding(b: PlacedBuilding, col: number, row: number): boolean {
-  if (!canPlace(BUILDING_BY_ID[b.type], col, row, b)) return false;
+export function moveBuilding(b: PlacedBuilding, col: number, row: number, edge?: Edge): boolean {
+  const def = BUILDING_BY_ID[b.type];
+  if (!canPlace(def, col, row, b)) return false;
   b.col = col;
   b.row = row;
+  if (def.onRoad) b.edge = edge ?? lampEdge(col, row);
   save();
   return true;
 }

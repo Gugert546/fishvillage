@@ -563,7 +563,7 @@ export const ARRANGEMENTS: ArrangementDef[] = [
     name: 'Avenue',
     bonus: 5,
     reach: 'homes beside that road',
-    rule: 'A straight road of 5+ tiles with 3+ Trees or Lamp Posts along each side.',
+    rule: 'A straight road of 5+ tiles with 3+ Trees or Lamp Posts along each side (lamps at that edge of the road).',
     hint: 'A long straight road, lined on both sides…',
     reward: 150,
     icon: 'lampPost',
@@ -690,6 +690,8 @@ export interface BuildingDef {
   nuisance?: { amount: number; radius: number; kind: 'smell' | 'noise' };
   /** Trees: touching a home, they screen it from nuisances. */
   screens?: boolean;
+  /** Lamp posts: placed on a road tile (the road stays), drawn at one of its edges. */
+  onRoad?: boolean;
   /** Share of spent coins returned on sell; defaults to SELL_REFUND. */
   refund?: number;
   /** Player house level needed before this can be built (default 1). */
@@ -1141,7 +1143,7 @@ BUILDINGS.push(
   decor('flowerBed', 'Flower Bed', 'A splash of colour.', 15, 6, 2),
   { ...decor('tree', 'Tree', 'Shade and birdsong. Screens homes from smell and noise.', 25, 5, 3), screens: true },
   decor('bench', 'Bench', 'A spot to sit and chat.', 30, 8, 2, 1, 2),
-  decor('lampPost', 'Lamp Post', 'Cosy light for evening walks.', 40, 6, 3, 1, 3),
+  { ...decor('lampPost', 'Lamp Post', 'Cosy light for evening walks. Goes on a road.', 40, 6, 3, 1, 3), onRoad: true },
   decor('fountain', 'Fountain', 'The pride of the town square.', 250, 15, 4, 2, 4),
   // Trophies: one per legendary fish, unlocked by catching it.
   ...(

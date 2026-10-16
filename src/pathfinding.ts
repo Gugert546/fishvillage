@@ -34,7 +34,8 @@ export class WalkGrid {
           const i = this.index(c, r);
           if (i < 0) continue;
           if (b.type === 'road') this.road[i] = 1;
-          else if (b.type !== 'bridge') this.blocked[i] = 1;
+          // Lamp posts stand at the edge of a road tile, so the road stays walkable.
+          else if (b.type !== 'bridge' && !(defOf(b).onRoad && b.edge)) this.blocked[i] = 1;
         }
       }
     }
