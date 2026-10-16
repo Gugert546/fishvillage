@@ -11,15 +11,28 @@ import { millBoost, tavernMood } from './services';
 import { isWorking, touchesWater, wateredTiles } from './water';
 import { state, type PlacedBuilding, type Resident } from './state';
 
+/** One kind of thing near a home and what it adds up to there, e.g. "Flower Bed ×3 +5". */
+export interface MoodSource {
+  label: string;
+  count: number;
+  value: number;
+}
+
 export interface HomeMood {
   base: number;
-  decor: number;
   road: number;
   water: number;
-  tavern: number;
-  /** Town-wide: Cheerful perk and the Harbor Gate. */
+  /** Town-wide: Cheerful perk, the Harbor Gate and festivals. */
   town: number;
-  /** base + decor + road + water + tavern + town, before the per-resident job modifier. */
+  /** Decorations, services and the square nearby, after falloff, repeats and diminishing returns. */
+  surroundings: number;
+  /** Smell and noise from nearby workplaces (zero or less), after screening. */
+  nuisance: number;
+  /** What makes up `surroundings`, biggest first. */
+  sources: MoodSource[];
+  /** What makes up `nuisance` (negative values), worst first. */
+  nuisances: MoodSource[];
+  /** base + road + water + town + surroundings + nuisance, before the per-resident job modifier. */
   total: number;
 }
 
@@ -44,27 +57,120 @@ export function touchesRoad(b: PlacedBuilding, roads = roadTiles()): boolean {
   return false;
 }
 
-/** Happiness a decoration gives a home, or 0 if out of range (or a boat with no water). */
-export function decorBonus(decor: PlacedBuilding, home: PlacedBuilding, wet?: Set<string>): number {
-  const effect = defOf(decor).happiness;
-  if (!effect || tileGap(decor, home) > effect.radius) return 0;
-  if (!defOf(decor).needsWater) return effect.amount;
-  return touchesWater(decor, wet ?? wateredTiles()) ? effect.amount : 0;
+/** Share of an effect that reaches a home `gap` tiles away: all of it when touching, less toward the edge. */
+export function falloff(gap: number, radius: number): number {
+  return radius > 0 ? 1 - HAPPINESS.edgeFalloff * (gap / radius) : 1;
 }
 
-export function homeMood(home: PlacedBuilding, roads = roadTiles(), wet = wateredTiles()): HomeMood {
-  let decor = 0;
-  let tavern = 0;
+/**
+ * Happiness a decoration would give a home on its own (after distance falloff), or 0 if out of
+ * range (or a boat with no water). Variety and diminishing returns come on top, in homeMood.
+ */
+export function decorBonus(decor: PlacedBuilding, home: PlacedBuilding, wet?: Set<string>): number {
+  const effect = defOf(decor).happiness;
+  if (!effect || decor === home) return 0;
+  const gap = tileGap(decor, home);
+  if (gap > effect.radius) return 0;
+  if (defOf(decor).needsWater && !touchesWater(decor, wet ?? wateredTiles())) return 0;
+  return effect.amount * falloff(gap, effect.radius);
+}
+
+/** Smell or noise a workplace puts on a home (a positive amount to take away), before screening. */
+export function nuisanceOn(b: PlacedBuilding, home: PlacedBuilding): number {
+  const n = defOf(b).nuisance;
+  if (!n || b === home) return 0;
+  const gap = tileGap(b, home);
+  return gap > n.radius ? 0 : n.amount * falloff(gap, n.radius);
+}
+
+/**
+ * A home's mood from where it stands. `buildings` can stand in for the town, e.g. with a building
+ * being placed added (and the one being moved left out) to preview the change.
+ */
+export function homeMood(
+  home: PlacedBuilding,
+  roads = roadTiles(),
+  wet = wateredTiles(),
+  buildings: readonly PlacedBuilding[] = state.buildings,
+): HomeMood {
   const counts = workerCounts();
-  for (const b of state.buildings) {
-    decor += decorBonus(b, home, wet);
-    if (defOf(b).moodPerWorker) tavern += tavernMood(b, tileGap(b, home), counts, wet);
+  const byType = new Map<string, { label: string; values: number[] }>();
+  const bad = new Map<string, MoodSource>();
+  let screens = 0;
+  for (const b of buildings) {
+    if (b === home) continue;
+    const def = defOf(b);
+    const gap = tileGap(b, home);
+    let cheer = decorBonus(b, home, wet);
+    if (def.moodPerWorker) cheer += tavernMood(b, gap, counts, wet) * falloff(gap, def.moodPerWorker.radius);
+    if (cheer > 0) {
+      const entry = byType.get(def.id) ?? { label: def.name, values: [] };
+      entry.values.push(cheer);
+      byType.set(def.id, entry);
+    }
+    const harm = nuisanceOn(b, home);
+    if (harm > 0) {
+      const entry = bad.get(def.id) ?? { label: `${def.name} ${def.nuisance!.kind}`, count: 0, value: 0 };
+      entry.count++;
+      entry.value -= harm;
+      bad.set(def.id, entry);
+    }
+    if (def.screens && gap === 0) screens++;
   }
+
+  // Variety: the best of each type counts fully, repeats count less.
+  const entries: { type: string; value: number }[] = [];
+  for (const [type, { values }] of byType) {
+    values.sort((a, b) => b - a);
+    values.forEach((v, i) => entries.push({ type, value: i === 0 ? v : v * HAPPINESS.repeatShare }));
+  }
+  // Diminishing returns: biggest first, each counting less than the one before.
+  entries.sort((a, b) => b.value - a.value);
+  const sources = new Map<string, MoodSource>();
+  let weight = 1;
+  let surroundings = 0;
+  for (const e of entries) {
+    const v = e.value * weight;
+    weight *= HAPPINESS.diminish;
+    surroundings += v;
+    const source = sources.get(e.type) ?? { label: byType.get(e.type)!.label, count: 0, value: 0 };
+    source.count++;
+    source.value += v;
+    sources.set(e.type, source);
+  }
+
+  // Trees hugging the home soften smell and noise.
+  const kept = 1 - Math.min(HAPPINESS.screenMax, screens * HAPPINESS.screenPerTree);
+  const nuisances = [...bad.values()].map((n) => ({ ...n, value: n.value * kept })).sort((a, b) => a.value - b.value);
+  const nuisance = nuisances.reduce((sum, n) => sum + n.value, 0);
+
   const road = touchesRoad(home, roads) ? HAPPINESS.roadNextToHome : 0;
   const water = touchesWater(home, wet) ? HAPPINESS.waterNextToHome : 0;
   const town = perkBonus('cheerful') + landmarkBonus('happiness') + festivalBonus(FESTIVAL.happiness);
-  return { base: HAPPINESS.base, decor, road, water, tavern, town, total: HAPPINESS.base + decor + road + water + tavern + town };
+  return {
+    base: HAPPINESS.base,
+    road,
+    water,
+    town,
+    surroundings,
+    nuisance,
+    sources: [...sources.values()].sort((a, b) => b.value - a.value),
+    nuisances,
+    total: HAPPINESS.base + road + water + town + surroundings + nuisance,
+  };
 }
+
+const emptyMood = (): HomeMood => ({
+  base: HAPPINESS.base,
+  road: 0,
+  water: 0,
+  town: 0,
+  surroundings: 0,
+  nuisance: 0,
+  sources: [],
+  nuisances: [],
+  total: HAPPINESS.base,
+});
 
 export function residentHappiness(r: Resident, mood: HomeMood): number {
   return clamp(mood.total + (r.cheer ?? 0) + (r.job !== null ? HAPPINESS.employed : HAPPINESS.unemployed));
@@ -80,9 +186,7 @@ export function happinessByResident(): Map<number, number> {
     let mood = moods.get(r.home);
     if (!mood) {
       const home = state.buildings.find((b) => b.id === r.home);
-      mood = home
-        ? homeMood(home, roads, wet)
-        : { base: HAPPINESS.base, decor: 0, road: 0, water: 0, tavern: 0, town: 0, total: HAPPINESS.base };
+      mood = home ? homeMood(home, roads, wet) : emptyMood();
       moods.set(r.home, mood);
     }
     out.set(r.id, residentHappiness(r, mood));

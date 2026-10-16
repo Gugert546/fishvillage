@@ -1,5 +1,6 @@
 import {
   BASE_STATS,
+  DECOR_FREE_REFUND_MS,
   UPGRADES,
   type AreaId,
   type BaitId,
@@ -14,7 +15,7 @@ import {
 } from './config';
 
 const SAVE_KEY = 'fishvillage.save.v1';
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 
 export interface PlacedBuilding {
   id: number;
@@ -164,6 +165,10 @@ export interface GameState {
   nextBuildingId: number;
   nextResidentId: number;
   lastSaved: number;
+  /** Until then (wall clock), decorations sell back at full price: old saves rearranging after the decor rework. */
+  decorRefundUntil: number;
+  /** An old save that hasn't seen the note about the decor rework yet. */
+  decorNotice: boolean;
 }
 
 function freshState(): GameState {
@@ -212,6 +217,8 @@ function freshState(): GameState {
     nextBuildingId: 1,
     nextResidentId: 1,
     lastSaved: Date.now(),
+    decorRefundUntil: 0,
+    decorNotice: false,
   };
 }
 
@@ -227,6 +234,12 @@ function migrate(saved: Partial<GameState>): void {
       b.row *= 2;
     }
     needsStarterResidents = (saved.buildings?.length ?? 0) > 0;
+  }
+  if (version < 3 && (saved.buildings?.length ?? 0) > 0) {
+    // v3 reworked happiness (falloff, variety, diminishing returns, nuisances): give old towns a
+    // week of free rearranging and a note saying why their mood dropped.
+    saved.decorRefundUntil = Date.now() + DECOR_FREE_REFUND_MS;
+    saved.decorNotice = true;
   }
   saved.version = SAVE_VERSION;
 }

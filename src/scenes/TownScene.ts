@@ -155,6 +155,7 @@ import {
   openLogbook,
   openMarket,
   openSettings,
+  showDecorNotice,
   showOfflineEarnings,
   showToast,
   type Button,
@@ -181,6 +182,13 @@ type BuildTab = 'homes' | 'shops' | 'services' | 'decor' | 'special';
 
 /** Workplaces that earn coins themselves (what the Water Mill boosts). */
 const earns = (def: BuildingDef) => !!(def.incomePerWorker || def.speciesIncomePerWorker);
+
+/** A happiness change for labels: "+3", "+0.5", "−7". */
+function moodDelta(v: number): string {
+  const abs = Math.abs(v);
+  const n = abs >= 1 ? String(Math.round(abs)) : abs >= 0.05 ? abs.toFixed(1) : '0';
+  return `${v < 0 && n !== '0' ? '−' : '+'}${n}`;
+}
 
 function tabOf(def: BuildingDef): BuildTab | undefined {
   if (def.menuTab === 'special') return 'special';
@@ -377,7 +385,7 @@ export class TownScene extends Phaser.Scene {
     for (const v of takeShipVisits()) this.sailShip(v.coins);
     this.updateFleet();
     this.refreshQuestButton();
-    if (!this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined));
+    if (!this.modal) this.modal = showOfflineEarnings(this, () => (this.modal = undefined)) ?? showDecorNotice(this, () => (this.modal = undefined));
 
     if (!this.gesture && Math.abs(this.velocity) > 5) {
       this.scrollTo(this.cameras.main.scrollY - this.velocity * dt);
@@ -1152,23 +1160,34 @@ export class TownScene extends Phaser.Scene {
       this.rangeLabels.push(t);
     };
 
-    // Decorations and Taverns both cheer up homes in a square around them.
-    const tavern = g.def.moodPerWorker;
-    const effect = g.def.happiness ?? (tavern && { amount: tavern.amount(g.moving?.level ?? 1), radius: tavern.radius });
-    if (effect) {
-      const r = effect.radius;
+    // Decorations and Taverns cheer up homes in a square around them; smelly or noisy workplaces
+    // spoil it. Labels show what each home would really gain or lose, after diminishing returns.
+    const others = state.buildings.filter((b) => b !== g.moving);
+    const square = (r: number, color: number) => {
       const c0 = Math.max(0, g.col - r);
       const r0 = Math.max(0, g.row - r);
       const c1 = Math.min(TOWN_COLS, g.col + g.def.w + r);
       const r1 = Math.min(townRows(), g.row + g.def.h + r);
       const tl = tileToWorld(c0, r0, r1 - r0);
-      this.rangeGfx.fillStyle(0xffe066, 0.13).fillRect(tl.x, tl.y, (c1 - c0) * TILE, (r1 - r0) * TILE);
-      this.rangeGfx.lineStyle(2, 0xffe066, 0.7).strokeRect(tl.x, tl.y, (c1 - c0) * TILE, (r1 - r0) * TILE);
-      for (const home of state.buildings) {
-        if (home === g.moving || !defOf(home).housing) continue;
-        const inRange = tileGap(probe, home) <= r;
-        if (tavern && inRange) label(home, `+${effect.amount}/worker`, COLORS.gold);
-        else if (!tavern && inRange) label(home, `+${decorBonus(probe, home)}`, COLORS.gold);
+      this.rangeGfx.fillStyle(color, 0.13).fillRect(tl.x, tl.y, (c1 - c0) * TILE, (r1 - r0) * TILE);
+      this.rangeGfx.lineStyle(2, color, 0.7).strokeRect(tl.x, tl.y, (c1 - c0) * TILE, (r1 - r0) * TILE);
+    };
+    const tavern = g.def.moodPerWorker;
+    const cheer = g.def.happiness ?? tavern;
+    const harm = g.def.nuisance;
+    if (cheer) square(cheer.radius, 0xffe066);
+    if (harm) square(harm.radius, 0xff6b6b);
+    if (cheer || harm) {
+      const reach = Math.max(cheer?.radius ?? 0, harm?.radius ?? 0);
+      for (const home of others) {
+        if (!defOf(home).housing || tileGap(probe, home) > reach) continue;
+        // A Tavern being placed has no staff yet, so show what each worker will add.
+        if (tavern && !harm) {
+          label(home, `+${tavern.amount(g.moving?.level ?? 1)}/worker`, COLORS.gold);
+          continue;
+        }
+        const gain = homeMood(home, undefined, undefined, [...others, probe]).total - homeMood(home, undefined, undefined, others).total;
+        label(home, moodDelta(gain), gain < 0 ? '#ff8a8a' : COLORS.gold);
       }
     }
     const mill = g.def.millPerWorker;
@@ -1186,7 +1205,7 @@ export class TownScene extends Phaser.Scene {
       }
     }
     if (g.def.housing) {
-      const mood = homeMood(probe);
+      const mood = homeMood(probe, undefined, undefined, others);
       label(probe, `Mood ${Math.round(Math.min(100, mood.total + 10))}%`, '#ffffff');
     }
   }
@@ -1823,7 +1842,8 @@ export class TownScene extends Phaser.Scene {
     const upgradable = def.maxLevel > 1;
     const height =
       104 +
-      (isHome ? 144 : 0) +
+      (isHome ? 184 : 0) +
+      (def.nuisance ? 22 : 0) +
       (isWork ? 156 : 0) +
       (isDecor ? 70 : 0) +
       (upgradable ? 70 : 0) +
@@ -1843,6 +1863,14 @@ export class TownScene extends Phaser.Scene {
       .setAlign('center')
       .setWordWrapWidth(GAME_WIDTH - 90);
     let y = m.top + 108;
+    if (def.nuisance) {
+      const { amount, radius, kind } = def.nuisance;
+      const noun = kind === 'smell' ? 'Smelly' : 'Noisy';
+      m.text(GAME_WIDTH / 2, y - 8, `${noun}: up to −${amount} happiness for homes within ${radius} tiles`, 14)
+        .setColor('#ff8a8a')
+        .setAlign('center');
+      y += 22;
+    }
 
     if (isHome) {
       const residents = residentsOf(b);
@@ -1859,21 +1887,28 @@ export class TownScene extends Phaser.Scene {
       m.text(40, y, `Happiness ${Math.round(shown)}%${avg === null ? ' (expected)' : ''}`, 18, 0).setColor(color);
       // Only what actually adds something, so the line fits.
       const parts = [`base ${mood.base}`];
-      if (mood.decor > 0) parts.push(`decor +${mood.decor}`);
       if (mood.road > 0) parts.push(`road +${mood.road}`);
       if (mood.water > 0) parts.push(`water +${mood.water}`);
-      if (mood.tavern > 0) parts.push(`tavern +${mood.tavern}`);
       if (mood.town > 0) parts.push(`town +${mood.town}`);
       parts.push('job ±10');
       m.text(40, y + 26, parts.join(' · '), 14, 0).setAlpha(0.75);
-      y += 74;
+      // What's nearby, after distance, repeats and diminishing returns; the worst nuisances first.
+      const nearby = [...mood.sources.slice(0, 4), ...mood.nuisances.slice(0, 2)].map(
+        (s) => `${s.label}${s.count > 1 ? ` ×${s.count}` : ''} ${moodDelta(s.value)}`,
+      );
+      const hidden = mood.sources.length + mood.nuisances.length - nearby.length;
+      if (hidden > 0) nearby.push(`+${hidden} more`);
+      const around = nearby.length > 0 ? nearby.join(' · ') : 'Nothing nearby. Decorations close to the door cheer homes up.';
+      m.text(40, y + 46, around, 14, 0).setAlpha(0.75).setWordWrapWidth(GAME_WIDTH - 90);
+      y += 114;
     }
 
     if (isDecor) {
       const effect = def.happiness!;
-      m.text(40, y, `+${effect.amount} happiness for homes within ${effect.radius} tiles`, 16, 0).setColor(COLORS.gold);
+      m.text(40, y, `Up to +${effect.amount} happiness for homes within ${effect.radius} tiles`, 16, 0).setColor(COLORS.gold);
       const homes = state.buildings.filter((h) => defOf(h).housing && decorBonus(b, h) > 0).length;
-      m.text(40, y + 26, homes === 1 ? 'Cheering up 1 home' : `Cheering up ${homes} homes`, 14, 0).setAlpha(0.75);
+      const cheering = homes === 1 ? 'Cheering up 1 home' : `Cheering up ${homes} homes`;
+      m.text(40, y + 26, `${cheering} · less far away or with many alike`, 14, 0).setAlpha(0.75);
       y += 70;
     }
 

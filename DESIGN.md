@@ -120,7 +120,7 @@ Kinds: catch N of a fish · fill the hook in one cast · earn $N from fishing ·
 - **Jobs:** workplaces have job slots that grow with level. No workers = no income; each worker adds a share. Tackle/Bait Shops are **closed** (no gear sales) without a shopkeeper.
 - **Assignment:** automatic, but jobs stick: a resident who has a job keeps it until you move them. Open slots go to the unemployed (⭐ priority workplaces first). A job only ends if its building is sold or you lower its staff `[−][+]` (the newest auto-hired leave first).
 - **Residents list:** tap the population counter in the top bar. Shows name, job, home and mood; tap a resident to pick their job (Auto / No job / a workplace). Hand-picked jobs are pinned: auto-assignment works around them and may bump auto workers to make room.
-- **Happiness (0–100%):** per house, averaged over residents. Sources: decorations with an area of effect (Flower bed, Tree, Bench, Fountain…), adjacent road, employment. Range preview while placing.
+- **Happiness (0–100%):** per house, averaged over residents. Base 35, road next to home +5, job +10 (−10 without), waterfront +5, town-wide boosts. Plus surroundings (decorations, Taverns, the square…), with distance falloff, less for repeats of a type and diminishing returns. Minus smell and noise from some harbour buildings, softened by trees touching the home (see Phase 8). The placement preview shows what each nearby home really gains or loses.
 - **Roads:** bonus only, never required. Villagers walk along them.
 - **Canals:** painted like roads ($10/tile, full refund). Water only flows in through canals connected to the shore (bottom row, where they pass under a little bridge in the boardwalk); unconnected stretches stay dry ditches. Homes beside water get +5 happiness. **Bridges** ($25) go over canals so villagers can cross.
 - **Effects:** income multiplier (~×0.75 at 0% → ×1.5 at 100%), move-in speed, perks at high happiness. Low happiness never makes residents leave.
@@ -232,7 +232,7 @@ art. In dev the page reloads by itself when a file is added.
 - Goal: players should put effort into making beautiful towns. Good layouts, variety and thoughtful placement should be rewarded, not decor spam.
 - Targets for one home: a plain home with a road and a job sits at **50%** (neutral). A decent mix of decorations gets it to about **70%**, and a carefully planned spot to **85–90%**. **100%** needs arrangements (part B) on top, or town-wide boosts (Cheerful, Harbor Gate, festivals).
 
-*Part A — Rebalance (build first)*
+*Part A — Rebalance* ✅ (tune from playtests)
 - **Fewer free points:** base 40 → **35**, road next to home +10 → **+5**. Job (+10 / −10 unemployed), waterfront +5 and request cheer stay as they are.
 - **Surroundings list:** everything nearby that cheers a home is one list: decorations, trophies, landmarks, the Town Square, and each Tavern/Bathhouse as a single entry (its per-worker total). Town-wide boosts stay flat and outside the list.
 - **Distance falloff:** an entry counts fully when it touches the home and drops linearly to **50%** at the edge of its radius: `amount × (1 − 0.5 × gap / radius)`.

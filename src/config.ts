@@ -430,12 +430,13 @@ export const MOVE_IN_SECONDS = 20;
 export const FIRST_MOVE_IN_SECONDS = 3;
 
 // --------------------------------------------------------------- Happiness
-// Each resident's happiness is 0–100: base + decor near home + road next to home ± job.
-// 50% is neutral; above it residents earn more and newcomers arrive faster.
+// Each resident's happiness is 0–100: base + surroundings − nuisances + road next to home ± job.
+// 50% is neutral (a plain home with a road and a job); above it residents earn more and newcomers
+// arrive faster.
 
 export const HAPPINESS = {
-  base: 40,
-  roadNextToHome: 10,
+  base: 35,
+  roadNextToHome: 5,
   /** Waterfront homes: next to a canal that's filled with water. */
   waterNextToHome: 5,
   employed: 10,
@@ -448,7 +449,19 @@ export const HAPPINESS = {
   moveInAtFull: 1.5,
   /** Workplace income bonus when next to a road. */
   roadIncomeBonus: 0.1,
+  /** Surroundings and nuisances count fully when touching a home, down to this share less at the edge of their radius. */
+  edgeFalloff: 0.5,
+  /** Per home, every decoration of a type after the best one counts this much. */
+  repeatShare: 1 / 3,
+  /** Surroundings sorted biggest first: each counts this share of the one before. */
+  diminish: 0.75,
+  /** Each screening tree touching a home cancels this share of its nuisance, up to `screenMax`. */
+  screenPerTree: 0.25,
+  screenMax: 0.5,
 };
+
+/** Old saves: decorations sell back at full price for this long after the rework, to rearrange. */
+export const DECOR_FREE_REFUND_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const RESIDENT_NAMES = [
   'Ada', 'Bo', 'Cora', 'Dag', 'Elin', 'Finn', 'Greta', 'Hugo', 'Ida', 'Jon', 'Kari', 'Leif', 'Maja', 'Nils',
@@ -533,6 +546,10 @@ export interface BuildingDef {
   housing?: (level: number) => number;
   /** Decor: happiness added to homes within `radius` tiles of its edge. */
   happiness?: { amount: number; radius: number };
+  /** Smelly or noisy workplaces: happiness taken from homes within `radius` tiles of its edge. */
+  nuisance?: { amount: number; radius: number; kind: 'smell' | 'noise' };
+  /** Trees: touching a home, they screen it from nuisances. */
+  screens?: boolean;
   /** Share of spent coins returned on sell; defaults to SELL_REFUND. */
   refund?: number;
   /** Player house level needed before this can be built (default 1). */
@@ -645,6 +662,7 @@ export const BUILDINGS: BuildingDef[] = [
   },
   {
     id: 'filletHouse',
+    nuisance: { amount: 4, radius: 2, kind: 'smell' },
     name: 'Fillet House',
     description: 'Fillets the catch, so every Fish Stand earns more.',
     category: 'work',
@@ -739,6 +757,7 @@ const service = (
 BUILDINGS.push(
   service({
     id: 'warehouse',
+    nuisance: { amount: 3, radius: 1, kind: 'noise' },
     name: 'Warehouse',
     description: 'Keeps you earning while away.',
     w: 4,
@@ -876,6 +895,7 @@ BUILDINGS.push(
   }),
   service({
     id: 'boatyard',
+    nuisance: { amount: 6, radius: 2, kind: 'noise' },
     name: 'Boatyard',
     description: 'Builds boats for new fishing spots.',
     w: 4,
@@ -959,7 +979,7 @@ BUILDINGS.push(
   },
   { ...decor('mooredBoats', 'Moored Boats', 'A rowboat tied up by the bank.', 60, 6, 2, 1, 2), needsWater: true },
   decor('flowerBed', 'Flower Bed', 'A splash of colour.', 15, 6, 2),
-  decor('tree', 'Tree', 'Shade and birdsong.', 25, 5, 3),
+  { ...decor('tree', 'Tree', 'Shade and birdsong. Screens homes from smell and noise.', 25, 5, 3), screens: true },
   decor('bench', 'Bench', 'A spot to sit and chat.', 30, 8, 2, 1, 2),
   decor('lampPost', 'Lamp Post', 'Cosy light for evening walks.', 40, 6, 3, 1, 3),
   decor('fountain', 'Fountain', 'The pride of the town square.', 250, 15, 4, 2, 4),
@@ -1026,7 +1046,7 @@ BUILDINGS.push({
 
 // Merchant-only decorations: bought from the traveling merchant, then placed for free.
 BUILDINGS.push(
-  { ...decor('palm', 'Exotic Palm', 'A souvenir from warmer seas.', 0, 10, 3), maxCount: 0, merchantOnly: true, menuTab: 'special' },
+  { ...decor('palm', 'Exotic Palm', 'A souvenir from warmer seas.', 0, 10, 3), maxCount: 0, merchantOnly: true, menuTab: 'special', screens: true },
   { ...decor('goldenAnchor', 'Golden Anchor', 'Polished to a shine.', 0, 12, 3), maxCount: 0, merchantOnly: true, menuTab: 'special' },
   { ...decor('koiPond', 'Koi Pond', 'Calm water and lazy fish.', 0, 18, 4, 2), maxCount: 0, merchantOnly: true, menuTab: 'special' },
 );
@@ -1054,6 +1074,7 @@ BUILDINGS.push({
 
 BUILDINGS.push({
   id: 'fishingWharf',
+  nuisance: { amount: 6, radius: 2, kind: 'smell' },
   name: 'Fishing Wharf',
   description: 'Fishermen sail little boats out along the canals. Their catch feeds the Cannery.',
   category: 'work',
@@ -1075,6 +1096,7 @@ BUILDINGS.push({
 
 BUILDINGS.push({
   id: 'cannery',
+  nuisance: { amount: 10, radius: 3, kind: 'smell' },
   name: 'Cannery',
   description: 'Cans the Fishing Wharf\'s catch, at 3× value.',
   category: 'work',
@@ -1094,6 +1116,7 @@ BUILDINGS.push({
 
 BUILDINGS.push({
   id: 'exportDocks',
+  nuisance: { amount: 8, radius: 3, kind: 'noise' },
   name: 'Export Docks',
   description: 'Trade ships call here and buy your canned fish.',
   category: 'work',

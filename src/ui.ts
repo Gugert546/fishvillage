@@ -305,6 +305,32 @@ export function showOfflineEarnings(scene: Phaser.Scene, onClose: () => void): M
   return m;
 }
 
+/** One-time note for old saves after the decor rework. */
+export function showDecorNotice(scene: Phaser.Scene, onClose: () => void): Modal | undefined {
+  if (!state.decorNotice) return undefined;
+  const m = new Modal(scene, 300);
+  m.text(GAME_WIDTH / 2, m.top + 40, 'Higher standards', 28);
+  m.text(
+    GAME_WIDTH / 2,
+    m.top + 130,
+    'Residents are pickier now. Decorations count most right by the door, and many of the same kind add little, so mix them up. ' +
+      'Smelly and noisy harbour buildings bother nearby homes; trees beside a home soften that.\n\n' +
+      'Decorations sell back at full price for the next 7 days, so rearrange freely.',
+    15,
+  )
+    .setAlign('center')
+    .setWordWrapWidth(GAME_WIDTH - 90);
+  m.add(
+    makeButton(scene, GAME_WIDTH / 2, m.top + 255, 160, 46, 'Got it', () => {
+      state.decorNotice = false;
+      save();
+      m.destroy();
+      onClose();
+    }),
+  );
+  return m;
+}
+
 function makeGearButton(scene: Phaser.Scene, x: number, y: number, onClick: () => void): Phaser.GameObjects.Container {
   const g = scene.add.image(0, 0, gearTexture(scene));
   // Generous invisible hit area so it's easy to tap.

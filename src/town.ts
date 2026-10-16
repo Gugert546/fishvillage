@@ -143,7 +143,11 @@ function totalSpent(b: PlacedBuilding): number {
   return total;
 }
 
+/** Decorations sell back at full price for a while after the decor rework (old saves only). */
+export const decorRefundFree = (def: BuildingDef) => def.category === 'decor' && Date.now() < state.decorRefundUntil;
+
 export function sellValue(b: PlacedBuilding): number {
+  if (decorRefundFree(BUILDING_BY_ID[b.type])) return totalSpent(b);
   return Math.floor(totalSpent(b) * (BUILDING_BY_ID[b.type].refund ?? SELL_REFUND));
 }
 
