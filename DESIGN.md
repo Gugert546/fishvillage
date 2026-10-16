@@ -227,26 +227,77 @@ art. In dev the page reloads by itself when a file is added.
 - **Resident requests** (Lv 2, up to 2 open, a new one every ~4 min): a decoration within 3 tiles of their home, a road by the door, or a job at a certain building. A "!" bubble shows over their home; the Quests board has a Requests tab. They complete by themselves: $40 × town level and +4 happiness for that resident for good (up to +12). Requests can be dismissed.
 - **Market streets**: an earning shop next to a road gets +5% for every other road-side earning shop within 3 tiles (up to +25%), shown as "street" in its panel.
 
-**Phase 8 — Cosmetics** (once the art style has settled)
+**Phase 8 — Beautiful towns (decoration rework)**
+- Problem: 100% happiness is too easy. Base 40 + road 10 + job 10 already gives 60, and decorations stack with no limit, so a few cheap flower beds next to every house max it out. Placement barely matters beyond being in range.
+- Goal: players should put effort into making beautiful towns. Good layouts, variety and thoughtful placement should be rewarded, not decor spam.
+- Targets for one home: a plain home with a road and a job sits at **50%** (neutral). A decent mix of decorations gets it to about **70%**, and a carefully planned spot to **85–90%**. **100%** needs arrangements (part B) on top, or town-wide boosts (Cheerful, Harbor Gate, festivals).
+
+*Part A — Rebalance (build first)*
+- **Fewer free points:** base 40 → **35**, road next to home +10 → **+5**. Job (+10 / −10 unemployed), waterfront +5 and request cheer stay as they are.
+- **Surroundings list:** everything nearby that cheers a home is one list: decorations, trophies, landmarks, the Town Square, and each Tavern/Bathhouse as a single entry (its per-worker total). Town-wide boosts stay flat and outside the list.
+- **Distance falloff:** an entry counts fully when it touches the home and drops linearly to **50%** at the edge of its radius: `amount × (1 − 0.5 × gap / radius)`.
+- **Variety:** per home, only the best entry of each type counts fully. Every further one of the same type counts **⅓**. (Three flower beds ≈ one and two-thirds.)
+- **Diminishing returns:** sort the list from biggest to smallest; each entry counts **75%** of the one before (100%, 75%, 56%, 42%, 32%…). Example: Fountain 15, Bench 8, Flower Bed 6, Lamp Post 6, Tree 5, all touching → 15 + 6 + 3.4 + 2.5 + 1.6 ≈ **+28**. Twenty flower beds next to a home give about +8, so spam is pointless.
+- **Unpleasant neighbours:** some workplaces lower the mood of homes in range (same falloff), shown as a red range while placing and as "Cannery smell −10" in the home's panel.
+
+  | Building | Effect | Radius |
+  |---|---|---|
+  | Cannery | −10 smell | 3 |
+  | Export Docks | −8 noise | 3 |
+  | Fishing Wharf | −6 smell | 2 |
+  | Boatyard | −6 noise | 2 |
+  | Fillet House | −4 smell | 2 |
+  | Warehouse | −3 noise | 1 |
+
+  Nuisances add up (no diminishing returns), so a smelly harbour district is a real choice. The grid is only 14 wide, so radii stay small enough that housing and industry can be zoned apart.
+- **Screening:** each Tree (or Exotic Palm) touching a home cancels 25% of its nuisance, up to 50%. Trees get a job of their own: hedging homes from the harbour.
+
+*Part B — Arrangements (build second)*
+- Certain layouts are recognised as a named **arrangement**. When one forms in build mode it gets a sparkle and a label, and homes in range get a flat bonus (outside the diminishing list). The same arrangement type counts once per home; different types add up.
+
+  | Arrangement | Rule | Bonus |
+  |---|---|---|
+  | **Garden** | A Cottage with 3+ Flower Beds touching it (Apartment: 4+) | +4, that home only |
+  | **Park** | 4+ decorations touching each other in one group, with 2+ Trees, a Bench and a Flower Bed | +6 within 3 |
+  | **Plaza** | A Fountain or Koi Pond on a road, with 2+ Benches and 2+ Lamp Posts within 2 tiles | +8 within 4 |
+  | **Avenue** | A straight road of 5+ tiles with Trees or Lamp Posts along both sides (3+ each side) | +5 to homes touching that road |
+  | **Promenade** | 4+ road tiles along a watered canal, with a Bench and Moored Boats or a Lamp Post beside them | +5 within 2 |
+
+- **Town Planner's Book** (next to the Logbook): lists every arrangement. Undiscovered ones show a silhouette and a one-line hint ("Trees, a bench and flowers, all together…"). Discovering one pays a small coin reward.
+- **Beauty for tourists:** each different arrangement type in town adds +0.1 to tourist appeal (up to +0.5), so beautiful towns also earn more.
+- Later in Phase 9, new decorations (flower boxes, statues, market stalls) can join existing arrangements or form new ones.
+
+*UI*
+- Home panel lists each source with what it actually gives after falloff, variety and diminishing returns (e.g. "Flower Bed ×3 +5", "Cannery smell −7", "Park +6").
+- While placing a decoration, the preview shows the **real** gain for each home in range ("+3", "+0.5"), not just the radius, so players can see where a piece matters.
+
+*Existing saves*
+- Happiness will drop for most towns. Show a one-time note ("Residents have higher standards now — try the Town Planner's Book") and refund decorations at 100% when sold for the first week, so players can rearrange for free.
+
+*Not now (later ideas)*
+- Rising expectations: residents expect more as the town levels up, and Apartment residents more than Cottage residents.
+- Crowding penalties (diminishing returns already cover spam).
+
+**Phase 9 — Cosmetics** (once the art style has settled)
 - Recolour buildings (wall, roof and trim colours from the palette), boat paint jobs, dock skins.
 - Many more decorations: flower boxes, statues, market stalls, seasonal pieces.
 - Unlocked with coins, achievements, tournament rewards and the merchant.
 
-**Phase 9 — Reasons to return**
+**Phase 10 — Reasons to return**
 - **Seasons** (one per real week): fish availability shifts, harbor ice in winter, a summer festival.
 - **Weekly fishing tournament**: a target species or total weight, with a trophy and perk-point rewards.
 - **Achievements**: milestones with small rewards and a badge wall in your house.
 
-**Phase 10 — Onboarding & clarity** (once the systems have settled)
+**Phase 11 — Onboarding & clarity** (once the systems have settled)
 - Guided first steps (first cast, sale, building, worker), then hints as each system unlocks.
 - "?" help on panels (wages, daily prices, orders…).
 - A stats screen: income vs. wages, best catch, totals.
 
-**Phase 11 — Tech & quality of life**
+**Phase 12 — Tech & quality of life**
 - Save export/import (a backup code, since iOS can clear localStorage), cloud save later.
 - Haptics, a performance pass on older iPhones, notch/safe-area polish.
 
-**Phase 12 — Ship to iPhone** (on hold): Capacitor, Codemagic cloud build, TestFlight (needs the Apple Developer account).
+**Phase 13 — Ship to iPhone** (on hold): Capacitor, Codemagic cloud build, TestFlight (needs the Apple Developer account).
 
 ## Done so far
 
@@ -266,6 +317,8 @@ art. In dev the page reloads by itself when a file is added.
 14. ~~Day/night, weather, daily quest, fish of the day, sound (Phase 4)~~
 15. ~~Pixel art restyle, Tiny5 font, custom sprite support~~
 16. ~~Wages, festivals, merchant, town projects, barrels & daily prices, Fishing Wharf, half-rate offline (Phase 5)~~
+17. ~~Legendary fights, treasure & junk, rods, combos, dev playtesting tools (Phase 6)~~
+18. ~~Tourists & Ferry Terminal, resident requests, market streets, sticky jobs (Phase 7)~~
 
 ## Dev tips
 
