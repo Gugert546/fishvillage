@@ -84,7 +84,7 @@ Every game starts with your own house above the dock (movable, not sellable). It
 
 **Pacing:** up to level 5 fishing is the main income and the levels come within the first sessions. From level 6 each level costs about a day of the town's passive income, so progress mostly comes overnight (lots of fishing works too, more slowly). Fish Stand, Fisherman's Hut and Seafood Restaurant income grows 30% per building level (wages only 15%), so the town outgrows fishing after level 5. Simulated in `scripts/sim/` (see PLAYTEST-SIM.md).
 
-Fish Stands: 2 at level 1, then **+1 per level**. No building can be upgraded past the town level.
+Fish Stands: 2 at level 1, then **+1 per level** (Fisherman's Huts the same way from level 3). No building can be upgraded past the town level.
 
 **Fillet House** (4×2, 4 jobs, one per town): earns nothing itself, but each worker makes every Fish Stand earn +10% (+12.5% at Lv2, +15% at Lv3).
 
@@ -104,12 +104,12 @@ Must be placed beside a filled canal; if the water goes away they stop working (
 | Building | Lv | Jobs | Effect |
 |---|---|---|---|
 | Moored Boats (decor) | 2 | – | +6 mood within 2 tiles; rowboat floats on the canal |
-| Fisherman's Hut | 3 | 2 | $9/min per worker |
+| Fisherman's Hut | 3 | 2 | $9/min per worker; 1 at level 3, then +1 per level (6 at Lv 8) |
 | Fish Market | 4 | 4 | +5% dock sale price per worker (+6% / +7% at Lv2/3) |
 | Water Mill | 4 | 2 | +10% income per worker for earning workplaces within 6 tiles (also boosts Fillet Houses) |
 | Boatyard | 5 | 4 | Sells boats for new fishing areas (needs a worker) |
 | Bathhouse | 5 | 4 | +5 mood per worker for homes within 6 tiles (+6 / +7 at Lv2/3) |
-| Seafood Restaurant | 6 | 4 | $20/min per worker, +2 mood per worker nearby |
+| Seafood Restaurant | 6 | 4 | $25/min per worker, +2 mood per worker nearby |
 
 ## Quests
 

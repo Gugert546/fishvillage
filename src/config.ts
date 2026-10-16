@@ -991,6 +991,8 @@ BUILDINGS.push(
     baseCost: 300,
     costGrowth: 1.4,
     maxCount: 6,
+    // 1 when it unlocks at town level 3, then one more per level (all 6 at level 8).
+    countAtLevel: (t) => Math.max(0, t - 2),
     maxLevel: 5,
     unlockLevel: 3,
     needsWater: true,
