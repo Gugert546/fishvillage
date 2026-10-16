@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
-import { AREAS, GAME_HEIGHT, GAME_WIDTH, LOGBOOK_PAGE_BONUS, type FishType } from './config';
+import { ARRANGEMENTS, AREAS, BUILDING_BY_ID, GAME_HEIGHT, GAME_WIDTH, LOGBOOK_PAGE_BONUS, type BuildingDef, type FishType } from './config';
+import { findArrangements, isDiscovered } from './arrangements';
+import { townLevel } from './town';
 import { incomePerMinute, skipTime, takeOfflineReport } from './economy';
 import { townHappiness } from './happiness';
 import { discovered, legendOf, pageComplete, pageProgress, regularFish, speciesCount, totalSpecies } from './logbook';
@@ -308,20 +310,21 @@ export function showOfflineEarnings(scene: Phaser.Scene, onClose: () => void): M
 /** One-time note for old saves after the decor rework. */
 export function showDecorNotice(scene: Phaser.Scene, onClose: () => void): Modal | undefined {
   if (!state.decorNotice) return undefined;
-  const m = new Modal(scene, 300);
+  const m = new Modal(scene, 330);
   m.text(GAME_WIDTH / 2, m.top + 40, 'Higher standards', 28);
   m.text(
     GAME_WIDTH / 2,
-    m.top + 130,
+    m.top + 145,
     'Residents are pickier now. Decorations count most right by the door, and many of the same kind add little, so mix them up. ' +
-      'Smelly and noisy harbour buildings bother nearby homes; trees beside a home soften that.\n\n' +
+      'Smelly and noisy harbour buildings bother nearby homes; trees beside a home soften that. ' +
+      'Some layouts earn extra: see the Planner in the Build menu.\n\n' +
       'Decorations sell back at full price for the next 7 days, so rearrange freely.',
     15,
   )
     .setAlign('center')
     .setWordWrapWidth(GAME_WIDTH - 90);
   m.add(
-    makeButton(scene, GAME_WIDTH / 2, m.top + 255, 160, 46, 'Got it', () => {
+    makeButton(scene, GAME_WIDTH / 2, m.top + 285, 160, 46, 'Got it', () => {
       state.decorNotice = false;
       save();
       m.destroy();
@@ -560,6 +563,53 @@ export function openLogbook(scene: Phaser.Scene, setModal: (m: Modal | undefined
  * The barrels: every fish you're keeping, today's price for each (up or down on normal), and
  * Sell buttons per species or for everything. Price bonuses apply at the moment you sell.
  */
+/**
+ * Town Planner's Book: every arrangement, with its rule once built (a hint before), what it gives
+ * and how many the town has. `picture` draws a building, as the town draws them.
+ */
+export function openPlannerBook(
+  scene: Phaser.Scene,
+  setModal: (m: Modal | undefined) => void,
+  picture: (def: BuildingDef) => Phaser.GameObjects.Container,
+  onClose?: () => void,
+): void {
+  const rowH = 86;
+  const m = new Modal(scene, 170 + ARRANGEMENTS.length * rowH);
+  setModal(m);
+  const found = findArrangements();
+  const known = ARRANGEMENTS.filter((a) => isDiscovered(a.id)).length;
+
+  m.text(GAME_WIDTH / 2, m.top + 30, "Town Planner's Book", 24);
+  m.text(GAME_WIDTH / 2, m.top + 62, `Arrangements found ${known}/${ARRANGEMENTS.length}`, 15).setColor(known === ARRANGEMENTS.length ? COLORS.gold : '#ffffff');
+
+  let y = m.top + 120;
+  for (const a of ARRANGEMENTS) {
+    const seen = isDiscovered(a.id);
+    const def = BUILDING_BY_ID[a.icon];
+    const pic = picture(def).setScale(1.5 / Math.max(def.w, def.h));
+    pic.setPosition(34, y - 30);
+    if (!seen) pic.setAlpha(0.25);
+    m.add(pic);
+    const count = found.filter((f) => f.id === a.id).length;
+    m.text(100, y - 30, seen ? a.name : '???', 17, 0).setAlpha(seen ? 1 : 0.6);
+    m.text(GAME_WIDTH - 44, y - 30, seen ? `In town: ${count}` : `Find it: +$${formatCoins(a.reward * townLevel())}`, 12, 1).setAlpha(0.7);
+    m.text(100, y - 10, `+${a.bonus} happiness for ${a.reach}`, 13, 0).setColor(COLORS.gold);
+    m.text(100, y + 2, seen ? a.rule : a.hint, 12, 0)
+      .setOrigin(0, 0)
+      .setAlpha(seen ? 0.85 : 0.65)
+      .setWordWrapWidth(GAME_WIDTH - 150);
+    y += rowH;
+  }
+
+  m.add(
+    makeButton(scene, GAME_WIDTH / 2, m.top + m.height - 34, 160, 44, 'Close', () => {
+      m.destroy();
+      setModal(undefined);
+      onClose?.();
+    }, COLORS.neutral),
+  );
+}
+
 export function openMarket(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void, page = 0, onClose?: () => void): void {
   const rowH = 46;
   const height = Math.min(GAME_HEIGHT - 110, 760);

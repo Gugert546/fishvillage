@@ -1,6 +1,7 @@
 // Happiness: how residents feel about where they live, and what that does for the town.
 
-import { FESTIVAL, HAPPINESS, STREET, WAGES } from './config';
+import { ARRANGEMENT_BY_ID, FESTIVAL, HAPPINESS, STREET, WAGES } from './config';
+import { findArrangements, type Arrangement } from './arrangements';
 import { tourismIncome } from './tourism';
 import { festivalBonus } from './festival';
 import { deliveryBoost } from './crates';
@@ -28,11 +29,15 @@ export interface HomeMood {
   surroundings: number;
   /** Smell and noise from nearby workplaces (zero or less), after screening. */
   nuisance: number;
+  /** Flat bonuses from arrangements reaching this home (each type once). */
+  arranged: number;
   /** What makes up `surroundings`, biggest first. */
   sources: MoodSource[];
   /** What makes up `nuisance` (negative values), worst first. */
   nuisances: MoodSource[];
-  /** base + road + water + town + surroundings + nuisance, before the per-resident job modifier. */
+  /** What makes up `arranged`, e.g. "Park +6". */
+  arrangements: MoodSource[];
+  /** base + road + water + town + surroundings + nuisance + arranged, before the per-resident job modifier. */
   total: number;
 }
 
@@ -92,6 +97,7 @@ export function homeMood(
   roads = roadTiles(),
   wet = wateredTiles(),
   buildings: readonly PlacedBuilding[] = state.buildings,
+  layouts: Arrangement[] = findArrangements(buildings, wet),
 ): HomeMood {
   const counts = workerCounts();
   const byType = new Map<string, { label: string; values: number[] }>();
@@ -144,6 +150,11 @@ export function homeMood(
   const nuisances = [...bad.values()].map((n) => ({ ...n, value: n.value * kept })).sort((a, b) => a.value - b.value);
   const nuisance = nuisances.reduce((sum, n) => sum + n.value, 0);
 
+  // Arrangements: a flat bonus per type reaching this home.
+  const kinds = new Set(layouts.filter((a) => a.homes.has(home)).map((a) => a.id));
+  const arrangements = [...kinds].map((id) => ({ label: ARRANGEMENT_BY_ID[id].name, count: 1, value: ARRANGEMENT_BY_ID[id].bonus }));
+  const arranged = arrangements.reduce((sum, a) => sum + a.value, 0);
+
   const road = touchesRoad(home, roads) ? HAPPINESS.roadNextToHome : 0;
   const water = touchesWater(home, wet) ? HAPPINESS.waterNextToHome : 0;
   const town = perkBonus('cheerful') + landmarkBonus('happiness') + festivalBonus(FESTIVAL.happiness);
@@ -156,7 +167,9 @@ export function homeMood(
     nuisance,
     sources: [...sources.values()].sort((a, b) => b.value - a.value),
     nuisances,
-    total: HAPPINESS.base + road + water + town + surroundings + nuisance,
+    arranged,
+    arrangements: arrangements.sort((a, b) => b.value - a.value),
+    total: HAPPINESS.base + road + water + town + surroundings + nuisance + arranged,
   };
 }
 
@@ -167,8 +180,10 @@ const emptyMood = (): HomeMood => ({
   town: 0,
   surroundings: 0,
   nuisance: 0,
+  arranged: 0,
   sources: [],
   nuisances: [],
+  arrangements: [],
   total: HAPPINESS.base,
 });
 
@@ -180,13 +195,14 @@ export function residentHappiness(r: Resident, mood: HomeMood): number {
 export function happinessByResident(): Map<number, number> {
   const roads = roadTiles();
   const wet = wateredTiles();
+  const layouts = findArrangements(state.buildings, wet);
   const moods = new Map<number, HomeMood>();
   const out = new Map<number, number>();
   for (const r of state.residents) {
     let mood = moods.get(r.home);
     if (!mood) {
       const home = state.buildings.find((b) => b.id === r.home);
-      mood = home ? homeMood(home, roads, wet) : emptyMood();
+      mood = home ? homeMood(home, roads, wet, state.buildings, layouts) : emptyMood();
       moods.set(r.home, mood);
     }
     out.set(r.id, residentHappiness(r, mood));

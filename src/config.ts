@@ -460,6 +460,101 @@ export const HAPPINESS = {
   screenMax: 0.5,
 };
 
+// ------------------------------------------------------------ Arrangements
+// Layouts the town recognises (a Park, a Plaza…). Homes they reach get a flat bonus on top of
+// their surroundings; each type counts once per home, different types add up.
+
+export type ArrangementId = 'garden' | 'park' | 'plaza' | 'avenue' | 'promenade';
+
+export interface ArrangementDef {
+  id: ArrangementId;
+  name: string;
+  /** Happiness for each home it reaches. */
+  bonus: number;
+  /** Who gets the bonus, for the Planner's Book. */
+  reach: string;
+  /** The rule, shown once discovered. */
+  rule: string;
+  /** A nudge, shown before. */
+  hint: string;
+  /** Coins for discovering it, × town level. */
+  reward: number;
+  /** Building drawn beside it in the Planner's Book. */
+  icon: BuildingId;
+}
+
+export const ARRANGEMENTS: ArrangementDef[] = [
+  {
+    id: 'garden',
+    name: 'Garden',
+    bonus: 4,
+    reach: 'that home',
+    rule: 'A Cottage with 3+ Flower Beds touching it (an Apartment needs 4+).',
+    hint: 'A cottage wrapped in flowers…',
+    reward: 50,
+    icon: 'flowerBed',
+  },
+  {
+    id: 'park',
+    name: 'Park',
+    bonus: 6,
+    reach: 'homes within 3 tiles',
+    rule: '4+ decorations side by side in one group, with 2+ Trees, a Bench and a Flower Bed.',
+    hint: 'Trees, a bench and flowers, all together…',
+    reward: 100,
+    icon: 'tree',
+  },
+  {
+    id: 'plaza',
+    name: 'Plaza',
+    bonus: 8,
+    reach: 'homes within 4 tiles',
+    rule: 'A Fountain or Koi Pond by a road, with 2+ Benches and 2+ Lamp Posts within 2 tiles.',
+    hint: 'Water, seats and lights where the roads meet…',
+    reward: 200,
+    icon: 'fountain',
+  },
+  {
+    id: 'avenue',
+    name: 'Avenue',
+    bonus: 5,
+    reach: 'homes beside that road',
+    rule: 'A straight road of 5+ tiles with 3+ Trees or Lamp Posts along each side.',
+    hint: 'A long straight road, lined on both sides…',
+    reward: 150,
+    icon: 'lampPost',
+  },
+  {
+    id: 'promenade',
+    name: 'Promenade',
+    bonus: 5,
+    reach: 'homes within 2 tiles',
+    rule: '4+ road tiles along a filled canal, with a Bench and Moored Boats or a Lamp Post beside them.',
+    hint: 'A stroll along the water…',
+    reward: 150,
+    icon: 'mooredBoats',
+  },
+];
+
+export const ARRANGEMENT_BY_ID = Object.fromEntries(ARRANGEMENTS.map((a) => [a.id, a])) as Record<ArrangementId, ArrangementDef>;
+
+export const ARRANGEMENT = {
+  gardenBeds: 3,
+  gardenBedsApartment: 4,
+  parkSize: 4,
+  parkRadius: 3,
+  /** Plaza: benches and lamps this close to the fountain; homes this close get the bonus. */
+  plazaGather: 2,
+  plazaRadius: 4,
+  avenueLength: 5,
+  avenuePerSide: 3,
+  promenadeLength: 4,
+  promenadeRadius: 2,
+  /** Tourist appeal for each different arrangement type in town, up to `maxAppeal`. */
+  appealPerType: 0.1,
+  maxAppeal: 0.5,
+};
+
 /** Old saves: decorations sell back at full price for this long after the rework, to rearrange. */
 export const DECOR_FREE_REFUND_MS = 7 * 24 * 60 * 60 * 1000;
 

@@ -28,8 +28,10 @@ import {
   FISH_PRICE_BONUS_PER_LEVEL,
   MAX_TOWN_LEVEL,
   TOWN_LEVELS,
+  ARRANGEMENT_BY_ID,
   type BuildingDef,
 } from '../config';
+import { discoverArrangements, findArrangements, type Arrangement } from '../arrangements';
 import { takeArrivals, tickEconomy } from '../economy';
 import {
   averageHappiness,
@@ -58,13 +60,13 @@ import {
   workerCounts,
   workersOf,
 } from '../population';
-import { state, type PlacedBuilding, type Resident } from '../state';
+import { save, state, type PlacedBuilding, type Resident } from '../state';
 import { makeTextures } from '../textures';
 import { addSprite, hasSprite, preloadSprites } from '../sprites';
 import { CHIMNEYS, LIGHTHOUSE_LAMP, buildingTexture, festivalTexture, millWheelTexture, squareTexture } from '../art/buildings';
 import { FOUNTAIN, LAMP_GLOW, decorTexture, ferryBoatTexture, fleetBoatTexture, jettyTexture, plinthTexture, rowboatTexture, tileIconTexture } from '../art/decor';
 import { canalMouthTexture, groundImage, shoreImage, tileTexture } from '../art/ground';
-import { badgeTexture, pipTexture } from '../art/icons';
+import { badgeTexture, pipTexture, sparkleTexture } from '../art/icons';
 import { PAL, pixImage } from '../pixel';
 import { Tourists, Villagers, makePerson, makePlayer } from './Villagers';
 import { isWorking, touchesWater, wateredTiles } from '../water';
@@ -154,6 +156,7 @@ import {
   onTap,
   openLogbook,
   openMarket,
+  openPlannerBook,
   openSettings,
   showDecorNotice,
   showOfflineEarnings,
@@ -290,6 +293,8 @@ export class TownScene extends Phaser.Scene {
   private tourists!: Tourists;
   /** Tourists in town (refreshed twice a second; it needs the whole town's happiness). */
   private touristsNow = 0;
+  /** Milliseconds until the next look for newly built arrangement types. */
+  private arrangementCheck = 0;
   /** "!" speech bubbles over homes whose residents have a request. */
   private requestBubbles = new Map<number, Phaser.GameObjects.Container>();
   /** The Fishing Wharf's boats, and their route along the canals out to sea. */
@@ -381,6 +386,11 @@ export class TownScene extends Phaser.Scene {
     this.tourists.update(Math.min(deltaMs, 100), time, ferry(), this.touristsNow);
     this.topBar.update();
     this.showArrivals();
+    this.arrangementCheck -= deltaMs;
+    if (this.arrangementCheck <= 0) {
+      this.arrangementCheck = 1000;
+      for (const { arrangement, coins } of discoverArrangements()) this.celebrateArrangement(arrangement, coins);
+    }
     for (const t of takeQuestToasts()) showToast(this, t);
     for (const v of takeShipVisits()) this.sailShip(v.coins);
     this.updateFleet();
@@ -931,6 +941,58 @@ export class TownScene extends Phaser.Scene {
     this.tweens.add({ targets: pop, y: pop.y - 36, alpha: 0, duration: 1600, onComplete: () => pop.destroy() });
   }
 
+  /** World position of the middle of a group of buildings, and of its top edge. */
+  private spanOf(members: PlacedBuilding[]): { x: number; y: number; top: number } {
+    const c0 = Math.min(...members.map((b) => b.col));
+    const r0 = Math.min(...members.map((b) => b.row));
+    const c1 = Math.max(...members.map((b) => b.col + defOf(b).w));
+    const r1 = Math.max(...members.map((b) => b.row + defOf(b).h));
+    const tl = tileToWorld(c0, r0, r1 - r0);
+    return { x: tl.x + ((c1 - c0) * TILE) / 2, y: tl.y + ((r1 - r0) * TILE) / 2, top: tl.y };
+  }
+
+  /** Names over the town's arrangements while building; the ones `piece` belongs to stand out. */
+  private labelArrangements(layouts: Arrangement[], piece?: PlacedBuilding): void {
+    for (const a of layouts) {
+      const { x, top } = this.spanOf(a.members);
+      const mine = !!piece && a.members.includes(piece);
+      const t = makeText(this, x, top + 8, ARRANGEMENT_BY_ID[a.id].name, 14)
+        .setOrigin(0.5)
+        .setDepth(46)
+        .setColor(mine ? COLORS.gold : '#ffffff')
+        .setAlpha(mine ? 1 : 0.7);
+      t.setX(Phaser.Math.Clamp(t.x, t.width / 2 + 4, GAME_WIDTH - t.width / 2 - 4));
+      this.rangeLabels.push(t);
+    }
+  }
+
+  /** A new kind of arrangement: twinkles, its name, a toast and the reward. */
+  private celebrateArrangement(a: Arrangement, coins: number): void {
+    const name = ARRANGEMENT_BY_ID[a.id].name;
+    const { x, y } = this.spanOf(a.members);
+    for (let i = 0; i < 10; i++) {
+      const angle = (i / 10) * Math.PI * 2;
+      const star = this.add.image(x, y, sparkleTexture(this)).setDepth(50).setScale(0.5);
+      this.tweens.add({
+        targets: star,
+        x: x + Math.cos(angle) * 56,
+        y: y + Math.sin(angle) * 40,
+        scale: 1.2,
+        alpha: 0,
+        duration: 1100,
+        delay: (i % 3) * 120,
+        ease: 'Quad.Out',
+        onComplete: () => star.destroy(),
+      });
+    }
+    const pop = makeText(this, x, y, `${name}!`, 22).setOrigin(0.5).setDepth(51).setColor(COLORS.gold);
+    pop.setX(Phaser.Math.Clamp(pop.x, pop.width / 2 + 4, GAME_WIDTH - pop.width / 2 - 4));
+    this.tweens.add({ targets: pop, y: y - 48, alpha: 0, duration: 2200, ease: 'Quad.Out', onComplete: () => pop.destroy() });
+    showToast(this, `New arrangement: ${name}! +$${formatCoins(coins)}`);
+    sfx.fanfare();
+    save();
+  }
+
   private showIncomePops(): void {
     if (this.modal) return;
     const moods = happinessByResident();
@@ -1177,18 +1239,23 @@ export class TownScene extends Phaser.Scene {
     const harm = g.def.nuisance;
     if (cheer) square(cheer.radius, 0xffe066);
     if (harm) square(harm.radius, 0xff6b6b);
-    if (cheer || harm) {
-      const reach = Math.max(cheer?.radius ?? 0, harm?.radius ?? 0);
-      for (const home of others) {
-        if (!defOf(home).housing || tileGap(probe, home) > reach) continue;
-        // A Tavern being placed has no staff yet, so show what each worker will add.
-        if (tavern && !harm) {
-          label(home, `+${tavern.amount(g.moving?.level ?? 1)}/worker`, COLORS.gold);
-          continue;
-        }
-        const gain = homeMood(home, undefined, undefined, [...others, probe]).total - homeMood(home, undefined, undefined, others).total;
-        label(home, moodDelta(gain), gain < 0 ? '#ff8a8a' : COLORS.gold);
+    // Arrangements as they'd be with this piece here: they can reach homes beyond its own radius.
+    const after = [...others, probe];
+    const layoutsBefore = findArrangements(others);
+    const layoutsAfter = findArrangements(after);
+    this.labelArrangements(layoutsAfter, probe);
+    const reach = Math.max(cheer?.radius ?? 0, harm?.radius ?? 0);
+    for (const home of others) {
+      if (!defOf(home).housing) continue;
+      const inRange = (cheer || harm) && tileGap(probe, home) <= reach;
+      // A Tavern being placed has no staff yet, so show what each worker will add.
+      if (tavern && !harm) {
+        if (inRange) label(home, `+${tavern.amount(g.moving?.level ?? 1)}/worker`, COLORS.gold);
+        continue;
       }
+      const gain =
+        homeMood(home, undefined, undefined, after, layoutsAfter).total - homeMood(home, undefined, undefined, others, layoutsBefore).total;
+      if (inRange || Math.abs(gain) >= 0.05) label(home, moodDelta(gain), gain < 0 ? '#ff8a8a' : COLORS.gold);
     }
     const mill = g.def.millPerWorker;
     if (mill) {
@@ -1205,7 +1272,7 @@ export class TownScene extends Phaser.Scene {
       }
     }
     if (g.def.housing) {
-      const mood = homeMood(probe, undefined, undefined, others);
+      const mood = homeMood(probe, undefined, undefined, after, layoutsAfter);
       label(probe, `Mood ${Math.round(Math.min(100, mood.total + 10))}%`, '#ffffff');
     }
   }
@@ -1224,6 +1291,13 @@ export class TownScene extends Phaser.Scene {
     const tip = def.id === 'canal' ? 'Connect to the shore to fill with water' : 'Two fingers to scroll';
     this.hint.setText(`Drag to paint ${noun}s · start on one to erase\n${tip}`).setVisible(true);
     this.drawGridLines();
+    this.refreshPaintLabels();
+  }
+
+  /** Roads make Avenues and Promenades, so show the town's arrangements while painting. */
+  private refreshPaintLabels(): void {
+    this.clearRangePreview();
+    this.labelArrangements(findArrangements());
   }
 
   private exitPaintMode(): void {
@@ -1233,6 +1307,7 @@ export class TownScene extends Phaser.Scene {
     this.paintBar.setVisible(false);
     this.hint.setVisible(false);
     this.drawGridLines();
+    this.clearRangePreview();
   }
 
   private tileUnder(screenX: number, screenY: number): { col: number; row: number } {
@@ -1287,6 +1362,7 @@ export class TownScene extends Phaser.Scene {
       }
     }
     this.drawTiles();
+    this.refreshPaintLabels();
   }
 
   /** Scrolls while the finger rests near the top or bottom edge, and keeps painting under it. */
@@ -1735,6 +1811,12 @@ export class TownScene extends Phaser.Scene {
     const defs = all.slice(p * fit, (p + 1) * fit);
     const m = (this.modal = new Modal(this, 170 + defs.length * rowH + (pages > 1 ? 60 : 0)));
     m.text(GAME_WIDTH / 2, m.top + 30, 'Build', 26);
+    m.add(
+      makeButton(this, GAME_WIDTH - 82, m.top + 30, 90, 34, 'Planner', () => {
+        this.closeModal();
+        openPlannerBook(this, (pm) => (this.modal = pm), (def) => this.drawBuilding(def), () => this.openBuildMenu(tab, p));
+      }, COLORS.neutral, 14),
+    );
 
     const tabs: [BuildTab, string][] = [
       ['homes', 'Homes'],
@@ -1893,10 +1975,10 @@ export class TownScene extends Phaser.Scene {
       parts.push('job ±10');
       m.text(40, y + 26, parts.join(' · '), 14, 0).setAlpha(0.75);
       // What's nearby, after distance, repeats and diminishing returns; the worst nuisances first.
-      const nearby = [...mood.sources.slice(0, 4), ...mood.nuisances.slice(0, 2)].map(
+      const nearby = [...mood.arrangements, ...mood.sources.slice(0, 4), ...mood.nuisances.slice(0, 2)].map(
         (s) => `${s.label}${s.count > 1 ? ` ×${s.count}` : ''} ${moodDelta(s.value)}`,
       );
-      const hidden = mood.sources.length + mood.nuisances.length - nearby.length;
+      const hidden = mood.arrangements.length + mood.sources.length + mood.nuisances.length - nearby.length;
       if (hidden > 0) nearby.push(`+${hidden} more`);
       const around = nearby.length > 0 ? nearby.join(' · ') : 'Nothing nearby. Decorations close to the door cheer homes up.';
       m.text(40, y + 46, around, 14, 0).setAlpha(0.75).setWordWrapWidth(GAME_WIDTH - 90);

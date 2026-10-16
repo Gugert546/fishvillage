@@ -23,6 +23,15 @@ export function pipTexture(scene: Phaser.Scene, color: 'red' | 'blue'): string {
   }).key;
 }
 
+/** Four-point twinkle for celebrations, e.g. a new arrangement. */
+export function sparkleTexture(scene: Phaser.Scene): string {
+  return pixTexture(scene, 'icon-sparkle', -8, -8, 16, 16, (p) => {
+    const a = new Art(p);
+    a.r(-1, -6, 2, 12, PAL.yellow).r(-6, -1, 12, 2, PAL.yellow);
+    a.r(-2, -2, 4, 4, PAL.yellow).r(-1, -1, 2, 2, PAL.white);
+  }).key;
+}
+
 export function coinTexture(scene: Phaser.Scene): string {
   return pixTexture(scene, 'icon-coin', -10, -10, 20, 20, (p) => {
     const a = new Art(p);

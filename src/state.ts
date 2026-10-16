@@ -3,6 +3,7 @@ import {
   DECOR_FREE_REFUND_MS,
   UPGRADES,
   type AreaId,
+  type ArrangementId,
   type BaitId,
   type BuildingId,
   type CharmId,
@@ -169,6 +170,8 @@ export interface GameState {
   decorRefundUntil: number;
   /** An old save that hasn't seen the note about the decor rework yet. */
   decorNotice: boolean;
+  /** Arrangement types built at least once (the Town Planner's Book). */
+  arrangementsFound: ArrangementId[];
 }
 
 function freshState(): GameState {
@@ -219,6 +222,7 @@ function freshState(): GameState {
     lastSaved: Date.now(),
     decorRefundUntil: 0,
     decorNotice: false,
+    arrangementsFound: [],
   };
 }
 

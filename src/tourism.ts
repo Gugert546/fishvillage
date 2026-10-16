@@ -1,7 +1,8 @@
 // Tourists: the Ferry Terminal brings visitors who stroll about and spend at the shops. How many
 // come depends on the terminal's staff and level, and on how lovely the town is.
 
-import { BUILDING_BY_ID, TOURISM } from './config';
+import { ARRANGEMENT, BUILDING_BY_ID, TOURISM } from './config';
+import { arrangementTypes } from './arrangements';
 import { festivalActive } from './festival';
 import { townHappiness } from './happiness';
 import { defOf, jobSlots, workerCounts } from './population';
@@ -25,6 +26,8 @@ export function attraction(happiness = townHappiness()): number {
     if (def.trophy) a += TOURISM.perTrophy;
     if (def.speciesIncomePerWorker) a += TOURISM.aquarium;
   }
+  // A beautiful town draws a crowd: each different arrangement type adds a little.
+  a += Math.min(ARRANGEMENT.maxAppeal, arrangementTypes().size * ARRANGEMENT.appealPerType);
   if (festivalActive()) a *= TOURISM.festival;
   return Math.max(0.2, Math.min(TOURISM.maxAttraction, a));
 }
