@@ -364,7 +364,7 @@ function makeGearButton(scene: Phaser.Scene, x: number, y: number, onClick: () =
 export function openSettings(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void): void {
   // Playtesting tools only exist in dev builds (npm run dev), never in a shipped game.
   const cheats = import.meta.env.DEV;
-  const m = new Modal(scene, cheats ? 556 : 266);
+  const m = new Modal(scene, cheats ? 580 : 290);
   setModal(m);
   const close = () => {
     m.destroy();
@@ -434,6 +434,7 @@ export function openSettings(scene: Phaser.Scene, setModal: (m: Modal | undefine
     }, COLORS.danger, 18),
     makeButton(scene, GAME_WIDTH / 2, m.top + m.height - 36, 160, 44, 'Close', close, COLORS.neutral),
   );
+  m.text(GAME_WIDTH / 2, m.top + m.height - 76, `Version ${__APP_VERSION__}`, 13).setAlpha(0.5);
 }
 
 function confirmReset(scene: Phaser.Scene, setModal: (m: Modal | undefined) => void): void {
